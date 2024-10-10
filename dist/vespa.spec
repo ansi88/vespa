@@ -33,13 +33,22 @@
 %define _defattr_is_vespa_vespa 0
 %define _command_cmake cmake3
 %global _vespa_abseil_cpp_version 20240116.1
-%global _vespa_build_depencencies_version 1.3.3
+%global _vespa_build_depencencies_version 1.3.6
 %global _vespa_gtest_version 1.14.0
 %global _vespa_protobuf_version 5.26.1
 %global _vespa_openblas_version 0.3.27
+%global _vespa_llama_version 3.3.0
 %global _use_vespa_abseil_cpp 1
 %global _use_vespa_protobuf 1
 %global _use_vespa_openblas 1
+%if 0%{?fedora}
+%if %{fedora} > 41
+%global _vespa_java_version 21
+%endif
+%endif
+%if ! 0%{?_vespa_java_version:1}
+%global _vespa_java_version 17
+%endif
 
 Name:           vespa
 Version:        _VESPA_VERSION_
@@ -137,7 +146,7 @@ Summary: Vespa - The open big data serving engine - base
 Requires: java-17-amazon-corretto-devel
 Requires: java-17-amazon-corretto
 %else
-Requires: java-17-openjdk-devel
+Requires: java-%{_vespa_java_version}-openjdk-devel
 %endif
 Requires(pre): shadow-utils
 
@@ -158,7 +167,7 @@ Requires: vespa-xxhash >= 0.8.1
 Requires: xxhash-libs >= 0.8.1
 %endif
 %if 0%{?el8}
-Requires: vespa-openssl >= 3.1.5
+Requires: vespa-openssl >= 3.1.7
 %else
 Requires: openssl-libs
 %endif
@@ -184,7 +193,7 @@ Summary: Vespa - The open big data serving engine - C++ libraries
 Requires: %{name}-base-libs = %{version}-%{release}
 Requires: libicu
 %if 0%{?el8}
-Requires: vespa-openssl >= 3.1.5
+Requires: vespa-openssl >= 3.1.7
 %else
 Requires: openssl-libs
 %endif
@@ -200,8 +209,8 @@ Requires: vespa-protobuf = %{_vespa_protobuf_version}
 Requires: vespa-protobuf = %{_vespa_protobuf_version}
 Requires: llvm-libs
 %endif
-Requires: vespa-onnxruntime = 1.18.0
-Requires: vespa-jllama = 3.2.1
+Requires: vespa-onnxruntime = 1.19.2
+Requires: vespa-jllama = %{_vespa_llama_version}
 Requires: vespa-openblas >= %{_vespa_openblas_version}
 
 %description libs
@@ -312,13 +321,13 @@ source %{_rhgit227_enable} || true
 %if 0%{?_java_home:1}
 export JAVA_HOME=%{?_java_home}
 %else
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export JAVA_HOME=/usr/lib/jvm/java-%{_vespa_java_version}-openjdk
 %endif
 export PATH="$JAVA_HOME/bin:$PATH"
 export FACTORY_VESPA_VERSION=%{version}
 
 %if 0%{?_use_mvn_wrapper}
-mvn --batch-mode -e -N io.takari:maven:wrapper -Dmaven=3.6.3
+mvn -B wrapper:wrapper -Dmaven=3.8.8 -N
 %endif
 %{?_use_mvn_wrapper:env VESPA_MAVEN_COMMAND=$(pwd)/mvnw }sh bootstrap.sh java
 %{?_use_mvn_wrapper:./mvnw}%{!?_use_mvn_wrapper:mvn} --batch-mode -nsu -T 1C install -DskipTests -Dmaven.javadoc.skip=true
@@ -338,7 +347,7 @@ VERSION=%{version} CI=true make -C client/go install-all
 %if 0%{?_java_home:1}
 export JAVA_HOME=%{?_java_home}
 %else
-export JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+export JAVA_HOME=/usr/lib/jvm/java-%{_vespa_java_version}-openjdk
 %endif
 export PATH="$JAVA_HOME/bin:$PATH"
 #%{?_use_mvn_wrapper:./mvnw}%{!?_use_mvn_wrapper:mvn} --batch-mode -nsu -T 1C -Dmaven.javadoc.skip=true test
@@ -366,7 +375,7 @@ cp %{buildroot}/%{_prefix}/etc/systemd/system/vespa.service %{buildroot}/usr/lib
 cp %{buildroot}/%{_prefix}/etc/systemd/system/vespa-configserver.service %{buildroot}/usr/lib/systemd/system
 %endif
 
-ln -s /usr/lib/jvm/jre-17-openjdk %{buildroot}/%{_prefix}/jdk
+ln -s /usr/lib/jvm/jre-%{_vespa_java_version}-openjdk %{buildroot}/%{_prefix}/jdk
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -442,7 +451,6 @@ fi
 %{_prefix}/bin
 %exclude %{_prefix}/bin/vespa
 %exclude %{_prefix}/bin/vespa-destination
-%exclude %{_prefix}/bin/vespa-document-statistics
 %exclude %{_prefix}/bin/vespa-fbench
 %exclude %{_prefix}/bin/vespa-feed-client
 %exclude %{_prefix}/bin/vespa-feeder
@@ -682,7 +690,6 @@ fi
 %dir %{_prefix}
 %dir %{_prefix}/bin
 %{_prefix}/bin/vespa-destination
-%{_prefix}/bin/vespa-document-statistics
 %{_prefix}/bin/vespa-fbench
 %{_prefix}/bin/vespa-feeder
 %{_prefix}/bin/vespa-get

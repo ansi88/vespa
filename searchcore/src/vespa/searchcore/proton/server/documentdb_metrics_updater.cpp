@@ -94,7 +94,7 @@ struct TempAttributeMetric
 
 struct TempAttributeMetrics
 {
-    using AttrMap = std::map<vespalib::string, TempAttributeMetric>;
+    using AttrMap = std::map<std::string, TempAttributeMetric>;
     TempAttributeMetric total;
     AttrMap attrs;
 };
@@ -112,7 +112,7 @@ isNotReadySubDB(const IDocumentSubDB *subDb, const DocumentSubDBCollection &subD
 }
 
 void
-fillTempAttributeMetrics(TempAttributeMetrics &metrics, const vespalib::string &attrName,
+fillTempAttributeMetrics(TempAttributeMetrics &metrics, const std::string &attrName,
                          const MemoryUsage &memoryUsage, uint32_t bitVectors)
 {
     metrics.total.memoryUsage.merge(memoryUsage);
@@ -165,7 +165,7 @@ void
 updateAttributeMetrics(AttributeMetrics &metrics, const TempAttributeMetrics &tmpMetrics)
 {
     for (const auto &attr : tmpMetrics.attrs) {
-        auto entry = metrics.get(attr.first);
+        auto entry = metrics.get_field_metrics_entry(attr.first);
         if (entry) {
             entry->memoryUsage.update(attr.second.memoryUsage);
         }

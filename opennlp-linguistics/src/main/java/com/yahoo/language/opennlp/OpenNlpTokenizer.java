@@ -122,8 +122,7 @@ public class OpenNlpTokenizer implements Tokenizer {
         return tokens;
     }
 
-    private String processToken(String token, Language language, StemMode stemMode, boolean removeAccents,
-                                Stemmer stemmer) {
+    private String processToken(String token, Language language, StemMode stemMode, boolean removeAccents, Stemmer stemmer) {
         token = normalizer.normalize(token);
         token = LinguisticsCase.toLowerCase(token);
         if (removeAccents)
@@ -143,12 +142,17 @@ public class OpenNlpTokenizer implements Tokenizer {
 
     private SnowballStemmer.ALGORITHM algorithmFor(Language language) {
         return switch (language) {
+            case ARABIC -> SnowballStemmer.ALGORITHM.ARABIC;
+            case CATALAN -> SnowballStemmer.ALGORITHM.CATALAN;
             case DANISH -> SnowballStemmer.ALGORITHM.DANISH;
             case DUTCH -> SnowballStemmer.ALGORITHM.DUTCH;
+            case ENGLISH -> SnowballStemmer.ALGORITHM.ENGLISH;
             case FINNISH -> SnowballStemmer.ALGORITHM.FINNISH;
             case FRENCH -> SnowballStemmer.ALGORITHM.FRENCH;
             case GERMAN -> SnowballStemmer.ALGORITHM.GERMAN;
+            case GREEK -> SnowballStemmer.ALGORITHM.GREEK;
             case HUNGARIAN -> SnowballStemmer.ALGORITHM.HUNGARIAN;
+            case INDONESIAN -> SnowballStemmer.ALGORITHM.INDONESIAN;
             case IRISH -> SnowballStemmer.ALGORITHM.IRISH;
             case ITALIAN -> SnowballStemmer.ALGORITHM.ITALIAN;
             case NORWEGIAN_BOKMAL -> SnowballStemmer.ALGORITHM.NORWEGIAN;
@@ -159,7 +163,6 @@ public class OpenNlpTokenizer implements Tokenizer {
             case SPANISH -> SnowballStemmer.ALGORITHM.SPANISH;
             case SWEDISH -> SnowballStemmer.ALGORITHM.SWEDISH;
             case TURKISH -> SnowballStemmer.ALGORITHM.TURKISH;
-            case ENGLISH -> SnowballStemmer.ALGORITHM.ENGLISH;
             default -> null;
         };
     }

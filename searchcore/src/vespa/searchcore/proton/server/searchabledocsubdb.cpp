@@ -85,7 +85,7 @@ createIndexManagerInitializer(const DocumentDBConfig &configSnapshot, SerialNum 
                               std::shared_ptr<searchcorespi::IIndexManager::SP> indexManager) const
 {
     const Schema & schema = *configSnapshot.getSchemaSP();
-    vespalib::string vespaIndexDir(_baseDir + "/index");
+    std::string vespaIndexDir(_baseDir + "/index");
     // Note: const_cast for reconfigurer role
     return std::make_shared<IndexManagerInitializer>
         (vespaIndexDir, indexCfg, schema, configSerialNum, const_cast<SearchableDocSubDB &>(*this),
@@ -152,7 +152,7 @@ SearchableDocSubDB::applyConfig(const DocumentDBConfig &newConfigSnapshot, const
     StoreOnlyDocSubDB::reconfigure(newConfigSnapshot.getStoreConfig(), alloc_strategy);
     IReprocessingTask::List tasks;
     applyFlushConfig(newConfigSnapshot.getMaintenanceConfigSP()->getFlushConfig());
-    if (prepared_reconfig.has_matchers_changed() && _addMetrics) {
+    if (prepared_reconfig.has_matchers_changed()) {
         reconfigureMatchingMetrics(newConfigSnapshot.getRankProfilesConfig());
     }
     if (prepared_reconfig.has_attribute_manager_changed()) {
@@ -162,9 +162,9 @@ SearchableDocSubDB::applyConfig(const DocumentDBConfig &newConfigSnapshot, const
         if (initializer && initializer->hasReprocessors()) {
             tasks.emplace_back(createReprocessingTask(*initializer, newConfigSnapshot.getDocumentTypeRepoSP()));
         }
-        if (_addMetrics) {
+        {
             proton::IAttributeManager::SP newMgr = getAttributeManager();
-            reconfigureAttributeMetrics(*newMgr, *oldMgr);
+            reconfigure_attribute_metrics(*newMgr);
         }
     } else {
         _configurer.reconfigure(newConfigSnapshot, oldConfigSnapshot, params, resolver, prepared_reconfig, serialNum);
@@ -218,9 +218,7 @@ SearchableDocSubDB::initViews(const DocumentDBConfig &configSnapshot)
         std::lock_guard<std::mutex> guard(_configMutex);
         initFeedView(std::move(attrWriter), configSnapshot);
     }
-    if (_addMetrics) {
-        reconfigureMatchingMetrics(configSnapshot.getRankProfilesConfig());
-    }
+    reconfigureMatchingMetrics(configSnapshot.getRankProfilesConfig());
 }
 
 void
@@ -316,7 +314,7 @@ SearchableDocSubDB::getDocumentRetriever()
 }
 
 MatchingStats
-SearchableDocSubDB::getMatcherStats(const vespalib::string &rankProfile) const
+SearchableDocSubDB::getMatcherStats(const std::string &rankProfile) const
 {
     return _rSearchView.get()->getMatcherStats(rankProfile);
 }

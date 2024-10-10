@@ -123,7 +123,7 @@ MatchThread::Context::rankHit(uint32_t docId) {
         if (__builtin_expect(score > _first_phase_rank_score_drop_limit, true)) {
             _hits.addHit(docId, score);
         } else if (use_rank_drop_limit == RankDropLimitE::track) {
-            dropped.template emplace_back(docId);
+            dropped.emplace_back(docId);
         }
     } else {
         _hits.addHit(docId, score);
@@ -535,11 +535,11 @@ MatchThread::run()
     }
     if (first_phase_profiler) {
         first_phase_profiler->report(trace->createCursor("first_phase_profiling"),
-                                     [](const vespalib::string &name){ return BlueprintResolver::describe_feature(name); });
+                                     [](const std::string &name){ return BlueprintResolver::describe_feature(name); });
     }
     if (second_phase_profiler) {
         second_phase_profiler->report(trace->createCursor("second_phase_profiling"),
-                                      [](const vespalib::string &name){ return BlueprintResolver::describe_feature(name); });
+                                      [](const std::string &name){ return BlueprintResolver::describe_feature(name); });
     }
 }
 

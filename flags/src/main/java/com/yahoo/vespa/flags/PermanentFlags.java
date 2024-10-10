@@ -2,6 +2,7 @@
 package com.yahoo.vespa.flags;
 
 import com.yahoo.vespa.flags.custom.ClusterCapacity;
+import com.yahoo.vespa.flags.custom.RoleList;
 import com.yahoo.vespa.flags.custom.SharedHost;
 
 import java.time.Instant;
@@ -159,7 +160,7 @@ public class PermanentFlags {
             INSTANCE_ID);
 
     public static final UnboundStringFlag METRIC_SET = defineStringFlag(
-            "metric-set", "Vespa",
+            "metric-set", "Vespa9",
             "Determines which metric set we should use for the given application",
             "Takes effect on next host admin tick",
             INSTANCE_ID);
@@ -329,6 +330,12 @@ public class PermanentFlags {
             value -> Set.of("any", "arm64", "x86_64").contains(value),
             INSTANCE_ID);
 
+    public static final UnboundDoubleFlag LOGSERVER_NODE_MEMORY = defineDoubleFlag(
+            "logserver-node-memory", 0.0,
+            "Amount of memory (in GiB) to allocate for logserver nodes",
+            "Takes effect on allocation from node repository",
+            INSTANCE_ID);
+
     public static final UnboundListFlag<String> CLOUD_ACCOUNTS = defineListFlag(
             "cloud-accounts", List.of(), String.class,
             "A list of 12-digit AWS account IDs that are valid for the given tenant",
@@ -475,6 +482,22 @@ public class PermanentFlags {
                     "Values used in server and client must correspond (so if decreasing this one must be sure" +
                     "that no node has stored more bytes than this)",
             "Takes effect on next reboot of config server");
+
+    public static UnboundJacksonFlag<RoleList> ROLE_DEFINITIONS = defineJacksonFlag(
+            "role-definitions", RoleList.empty(), RoleList.class,
+            "Role definitions for the system",
+            "Takes effect on next iteration of UserManagementMaintainer");
+
+    public static final UnboundBooleanFlag FORWARD_ALL_LOG_LEVELS = defineFeatureFlag(
+            "forward-all-log-levels", false,
+            "Forward all log levels from nodes to logserver (debug and spam levels will be forwarded only if this flag is enabled)",
+            "Takes effect at redeployment");
+
+    public static final UnboundStringFlag UNKNOWN_CONFIG_DEFINITION = defineStringFlag(
+            "unknown-config-definition", "warn",
+            "How to handle user config referencing unknown config definitions. Valid values are 'warn' and 'fail'",
+            "Takes effect at redeployment",
+            INSTANCE_ID);
 
     private PermanentFlags() {}
 

@@ -4,7 +4,7 @@
 #include <vespa/searchcore/proton/test/dummydbowner.h>
 #include <vespa/searchcore/proton/common/alloc_config.h>
 #include <vespa/searchcore/proton/matching/querylimiter.h>
-#include <vespa/searchcore/proton/metrics/metricswireservice.h>
+#include <vespa/searchcore/proton/metrics/dummy_wire_service.h>
 #include <vespa/searchcore/proton/persistenceengine/ipersistenceengineowner.h>
 #include <vespa/searchcore/proton/persistenceengine/persistenceengine.h>
 #include <vespa/searchcore/proton/server/bootstrapconfig.h>
@@ -179,9 +179,9 @@ ConfigFactory::~ConfigFactory() = default;
 
 class DocumentDBFactory : public DummyDBOwner {
 private:
-    vespalib::string          _baseDir;
+    std::string          _baseDir;
     DummyFileHeaderContext    _fileHeaderContext;
-    vespalib::string          _tlsSpec;
+    std::string          _tlsSpec;
     matching::QueryLimiter    _queryLimiter;
     mutable DummyWireService      _metricsWireService;
     mutable MemoryConfigStores    _config_stores;
@@ -196,7 +196,7 @@ private:
     }
 
 public:
-    DocumentDBFactory(const vespalib::string &baseDir, int tlsListenPort);
+    DocumentDBFactory(const std::string &baseDir, int tlsListenPort);
     ~DocumentDBFactory() override;
     DocumentDB::SP create(BucketSpace bucketSpace,
                           const DocTypeName &docType,
@@ -204,7 +204,7 @@ public:
         DocumentDBConfig::SP snapshot = factory.create(docType);
         std::filesystem::create_directory(std::filesystem::path(_baseDir));
         std::filesystem::create_directory(std::filesystem::path(_baseDir + "/" + docType.toString()));
-        vespalib::string inputCfg = _baseDir + "/" + docType.toString() + "/baseconfig";
+        std::string inputCfg = _baseDir + "/" + docType.toString() + "/baseconfig";
         {
             FileConfigManager fileCfg(_shared_service.transport(), inputCfg, "", docType.getName());
             fileCfg.saveConfig(*snapshot, 1);
@@ -229,7 +229,7 @@ public:
 };
 
 
-DocumentDBFactory::DocumentDBFactory(const vespalib::string &baseDir, int tlsListenPort)
+DocumentDBFactory::DocumentDBFactory(const std::string &baseDir, int tlsListenPort)
     : _baseDir(baseDir),
       _fileHeaderContext(),
       _tlsSpec(vespalib::make_string("tcp/localhost:%d", tlsListenPort)),
@@ -310,7 +310,7 @@ public:
                         MyResourceWriteFilter &writeFilter,
                         IDiskMemUsageNotifier& disk_mem_usage_notifier,
                         DocumentDBRepo::UP docDbRepo,
-                        const vespalib::string &docType = "")
+                        const std::string &docType = "")
         : DocDBRepoHolder(std::move(docDbRepo)),
           PersistenceEngine(owner, writeFilter, disk_mem_usage_notifier, -1, false)
     {
@@ -318,7 +318,7 @@ public:
     }
 
     void
-    addHandlers(const vespalib::string &docType)
+    addHandlers(const std::string &docType)
     {
         if (!_docDbRepo)
             return;
@@ -355,18 +355,18 @@ public:
 
 class MyPersistenceFactory : public PersistenceFactory {
 private:
-    vespalib::string          _baseDir;
+    std::string          _baseDir;
     DocumentDBFactory       _docDbFactory;
     SchemaConfigFactory::SP _schemaFactory;
     DocumentDBRepo::UP      _docDbRepo;
-    vespalib::string        _docType;
+    std::string        _docType;
     MyPersistenceEngineOwner _engineOwner;
     MyResourceWriteFilter    _writeFilter;
     test::DiskMemUsageNotifier   _disk_mem_usage_notifier;
 public:
-    MyPersistenceFactory(const vespalib::string &baseDir, int tlsListenPort,
+    MyPersistenceFactory(const std::string &baseDir, int tlsListenPort,
                          SchemaConfigFactory::SP schemaFactory,
-                         const vespalib::string & docType = "")
+                         const std::string & docType = "")
         : _baseDir(baseDir),
           _docDbFactory(baseDir, tlsListenPort),
           _schemaFactory(std::move(schemaFactory)),

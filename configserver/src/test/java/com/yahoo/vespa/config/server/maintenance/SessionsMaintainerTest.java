@@ -12,9 +12,8 @@ import com.yahoo.vespa.config.server.session.LocalSession;
 import com.yahoo.vespa.config.server.session.PrepareParams;
 import com.yahoo.vespa.config.server.session.SessionRepository;
 import com.yahoo.vespa.config.server.session.SessionZooKeeperClient;
+import com.yahoo.vespa.flags.FlagSource;
 import com.yahoo.vespa.flags.InMemoryFlagSource;
-import com.yahoo.vespa.flags.PermanentFlags;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -27,16 +26,20 @@ import java.util.ArrayList;
 
 import static com.yahoo.vespa.config.server.session.Session.Status.PREPARE;
 import static com.yahoo.vespa.config.server.session.Session.Status.UNKNOWN;
+import static com.yahoo.yolean.Exceptions.uncheck;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+// Note: Some test depend on sessionLifetime being 60 (set in config server config in MaintainerTester)
 public class SessionsMaintainerTest {
 
-    private final static File testApp = new File("src/test/apps/hosted");
+    private static final File testApp = new File("src/test/apps/hosted");
     private static final ApplicationId applicationId = ApplicationId.from("deploytester", "myApp", "default");
+
     private final ManualClock clock = new ManualClock();
+    private final InMemoryFlagSource flagSource = new InMemoryFlagSource();
     private MaintainerTester tester;
     private ApplicationRepository applicationRepository;
     private SessionsMaintainer maintainer;
@@ -46,24 +49,9 @@ public class SessionsMaintainerTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-    @Before
-    public void setup() throws IOException {
-        var flagSource = new InMemoryFlagSource();
-        long sessionLifeTime = 60;
-        flagSource.withLongFlag(PermanentFlags.CONFIG_SERVER_SESSION_EXPIRY_TIME.id(), sessionLifeTime * 2);
-
-        tester = new MaintainerTester(clock, temporaryFolder, flagSource);
-        applicationRepository = tester.applicationRepository();
-        applicationRepository.tenantRepository().addTenant(applicationId.tenant());
-        maintainer = new SessionsMaintainer(applicationRepository, tester.curator(), Duration.ofMinutes(1));
-        sessionRepository = applicationRepository.getTenant(applicationId).getSessionRepository();
-
-        var serverdb = new File(applicationRepository.configserverConfig().configServerDBDir());
-        tenantFileSystemDirs = new TenantFileSystemDirs(serverdb, applicationId.tenant());
-    }
-
     @Test
     public void testDeletion() {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         clock.advance(Duration.ofSeconds(10));
@@ -100,6 +88,7 @@ public class SessionsMaintainerTest {
 
     @Test
     public void testDeletionOfSessionWithNoData() throws IOException {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         // Deploy, but do not activate
@@ -124,6 +113,7 @@ public class SessionsMaintainerTest {
 
     @Test
     public void testDeletionOfSessionWithUnknownStatus() {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         // Deploy, but do not activate
@@ -155,9 +145,9 @@ public class SessionsMaintainerTest {
         assertNumberOfLocalSessions(1);
     }
 
-
     @Test
     public void testDeletingInactiveSessions3() throws IOException {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         clock.advance(Duration.ofMinutes(10));
@@ -187,6 +177,26 @@ public class SessionsMaintainerTest {
         maintainer.run();
         assertNumberOfLocalSessions(1); // same as before, will not show up in local sessions
         assertFalse(applicationPath.toFile().exists()); // App has been deleted
+    }
+
+    private MaintainerTester createTester() {
+        return createTester(flagSource);
+    }
+
+    private MaintainerTester createTester(FlagSource flagSource) {
+        var tester = uncheck(() -> new MaintainerTester(clock, temporaryFolder, flagSource));
+        return setup(tester);
+    }
+
+    private MaintainerTester setup(MaintainerTester tester) {
+        applicationRepository = tester.applicationRepository();
+        applicationRepository.tenantRepository().addTenant(applicationId.tenant());
+        maintainer = new SessionsMaintainer(applicationRepository, tester.curator(), Duration.ofMinutes(1));
+        sessionRepository = applicationRepository.getTenant(applicationId).getSessionRepository();
+
+        var serverdb = new File(applicationRepository.configserverConfig().configServerDBDir());
+        tenantFileSystemDirs = new TenantFileSystemDirs(serverdb, applicationId.tenant());
+        return tester;
     }
 
     private void createLocalSession(TenantName tenantName, int sessionId) {

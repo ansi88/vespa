@@ -167,7 +167,6 @@ public class Preparer {
             if (parentLockOrNull != null) {
                 List<Node> exclusiveParents = allocation.parentsRequiredToBeExclusive();
                 nodeRepository.nodes().setExclusiveToApplicationId(exclusiveParents, parentLockOrNull, application);
-                hostProvisioner.ifPresent(provisioner -> provisioner.updateAllocation(exclusiveParents, application));
             }
             acceptedNodes = allocation.finalNodes();
             nodeRepository.nodes().reserve(allocation.reservableNodes());
@@ -189,7 +188,7 @@ public class Preparer {
                                              Supplier<Integer> nextIndex, LockedNodeList allNodes) {
         validateAccount(requested.cloudAccount(), application, allNodes);
         NodeAllocation allocation = new NodeAllocation(allNodes, application, cluster, requested, nextIndex, nodeRepository);
-        IP.Allocation.Context allocationContext = IP.Allocation.Context.from(nodeRepository.zone().cloud().name(),
+        IP.Allocation.Context allocationContext = IP.Allocation.Context.from(nodeRepository.zone().cloud(),
                                                                              requested.cloudAccount().isExclave(nodeRepository.zone()),
                                                                              nodeRepository.nameResolver());
         NodePrioritizer prioritizer = new NodePrioritizer(allNodes,

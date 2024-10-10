@@ -72,6 +72,9 @@ public class SignificanceModelGenerator {
     private final static String SIGNIFICANCE_DESCRIPTION = "Significance model for input file";
     private final static String DOC_FREQ_DESCRIPTION = "Document frequency for language";
 
+    private final static String DUMMY_DOC_TYPE = "dummy";
+    private final static String DUMMY_DOC_ID = "id:dummy:" + DUMMY_DOC_TYPE + "::dummy";
+
     public SignificanceModelGenerator(ClientParameters clientParameters) {
         this.clientParameters = clientParameters;
 
@@ -93,7 +96,7 @@ public class SignificanceModelGenerator {
         tokenizer = openNlpLinguistics.getTokenizer();
         objectMapper = new ObjectMapper();
 
-        docType = new DocumentType(clientParameters.docType);
+        docType = new DocumentType(DUMMY_DOC_TYPE);
         docType.addField(new Field(clientParameters.field, DataType.STRING));
         useZstCompression = clientParameters.zstCompression;
 
@@ -112,18 +115,28 @@ public class SignificanceModelGenerator {
         long i = 1;
         while (reader.ready()) {
             String line = reader.readLine();
-            JsonReader jsonReader = new JsonReader(types, new ByteArrayInputStream(Utf8.toBytes(line)), parserFactory);
-            String wikimediaId = "id:wikimedia:" + languageTag.languageCode() + "::" + i;
 
-            ParsedDocumentOperation operation = jsonReader.readSingleDocumentStreaming(DocumentOperationType.PUT, wikimediaId);
+            // Avoid failing on empty lines
+            if (line.isBlank())
+                continue;
+
+            JsonReader jsonReader = new JsonReader(types, new ByteArrayInputStream(Utf8.toBytes(line)), parserFactory);
+
+            // Using DUMMY_DOC_ID since we are only interested in content.
+            ParsedDocumentOperation operation = jsonReader.readSingleDocumentStreaming(DocumentOperationType.PUT, DUMMY_DOC_ID);
+
             DocumentPut put = (DocumentPut) operation.operation();
             Document document = put.getDocument();
             FieldValue fieldValue = document.getFieldValue(clientParameters.field);
             this.handleTokenization(fieldValue.toString());
+            if (i % 50000 == 0) {
+                System.out.println("Documents processed: " + i + ", unique words: " + documentFrequency.size());
+            }
             i++;
         }
 
         long pageCount = i - 1;
+        System.out.println("Total documents processed: " + pageCount + ", unique words: " + documentFrequency.size());
 
         SignificanceModelFile modelFile;
         File outputFile = Paths.get(clientParameters.outputFile).toFile();
@@ -159,7 +172,7 @@ public class SignificanceModelGenerator {
     }
 
     private void handleTokenization(String field) {
-        var tokens = tokenizer.tokenize(field, languageTag, StemMode.ALL, false);
+        var tokens = tokenizer.tokenize(field, languageTag, StemMode.NONE, false);
 
         Set<String> uniqueWords = StreamSupport.stream(tokens.spliterator(), false)
                 .filter(t -> t.getType() == TokenType.ALPHABETIC)

@@ -25,6 +25,7 @@ import com.yahoo.config.provision.AllocatedHosts;
 import com.yahoo.config.provision.ApplicationId;
 import com.yahoo.config.provision.AthenzDomain;
 import com.yahoo.config.provision.CloudAccount;
+import com.yahoo.config.provision.CloudName;
 import com.yahoo.config.provision.DataplaneToken;
 import com.yahoo.config.provision.DockerImage;
 import com.yahoo.config.provision.InstanceName;
@@ -48,7 +49,6 @@ import com.yahoo.vespa.config.server.provision.HostProvisionerProvider;
 import com.yahoo.vespa.config.server.tenant.ContainerEndpointsCache;
 import com.yahoo.vespa.config.server.tenant.EndpointCertificateMetadataStore;
 import com.yahoo.vespa.config.server.tenant.EndpointCertificateRetriever;
-import com.yahoo.vespa.config.server.tenant.SecretStoreExternalIdRetriever;
 import com.yahoo.vespa.config.server.tenant.TenantRepository;
 import com.yahoo.vespa.curator.Curator;
 import com.yahoo.vespa.flags.BooleanFlag;
@@ -129,7 +129,8 @@ public class SessionPreparer {
     ExecutorService getExecutor() { return executor; }
 
     /**
-     * Prepares a session (validates, builds model, writes to zookeeper and distributes files)
+     * Prepares a session (validates, builds model, trigger distribution of application package
+     * to other config servers, writes to zookeeper)
      *
      * @param hostValidator               host validator
      * @param logger                      for storing logs returned in response to client.
@@ -150,7 +151,7 @@ public class SessionPreparer {
             AllocatedHosts allocatedHosts = preparation.buildModels(now);
             preparation.makeResult(allocatedHosts);
             if ( ! params.isDryRun()) {
-                FileReference fileReference = preparation.startDistributionOfApplicationPackage();
+                FileReference fileReference = preparation.triggerDistributionOfApplicationPackage();
                 preparation.writeStateZK(fileReference);
                 preparation.writeEndpointCertificateMetadataZK();
                 preparation.writeContainerEndpointsZK();
@@ -243,7 +244,7 @@ public class SessionPreparer {
             }
         }
 
-        FileReference startDistributionOfApplicationPackage() {
+        FileReference triggerDistributionOfApplicationPackage() {
             FileReference fileReference = fileRegistry.addApplicationPackage();
             FileDistribution fileDistribution = fileDistributionFactory.createFileDistribution();
             log.log(Level.FINE, () -> "Ask other config servers to download application package for " +
@@ -251,7 +252,7 @@ public class SessionPreparer {
             ConfigServerSpec.fromConfig(configserverConfig)
                       .stream()
                       .filter(spec -> !spec.getHostName().equals(HostName.getLocalhost()))
-                      .forEach(spec -> fileDistribution.startDownload(spec.getHostName(), spec.getConfigServerPort(), Set.of(fileReference)));
+                      .forEach(spec -> fileDistribution.triggerDownload(spec.getHostName(), spec.getConfigServerPort(), Set.of(fileReference)));
 
             checkTimeout("startDistributionOfApplicationPackage");
             return fileReference;
@@ -349,15 +350,6 @@ public class SessionPreparer {
         void writeStateZK(FileReference filereference) {
             log.log(Level.FINE, "Writing application package state to zookeeper");
 
-            // TODO: this can be removed when all existing tenant secret stores have externalId in zk
-            var tenantSecretStores = params.tenantSecretStores();
-            try {
-                tenantSecretStores = SecretStoreExternalIdRetriever
-                        .populateExternalId(secretStore, applicationId.tenant(), zone.system(), params.tenantSecretStores());
-            } catch (InvalidApplicationException e) {
-                log.warning(e.getMessage() + " Secret store was probably deleted.");
-            }
-
             writeStateToZooKeeper(sessionZooKeeperClient,
                                   preprocessedApplicationPackage,
                                   applicationId,
@@ -370,7 +362,7 @@ public class SessionPreparer {
                                   prepareResult.allocatedHosts(),
                                   athenzDomain,
                                   params.quota(),
-                                  tenantSecretStores,
+                                  params.tenantSecretStores(),
                                   params.operatorCertificates(),
                                   params.cloudAccount(),
                                   params.dataplaneTokens(),

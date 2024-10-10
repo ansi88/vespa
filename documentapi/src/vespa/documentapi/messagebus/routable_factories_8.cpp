@@ -5,6 +5,7 @@
 #include <vespa/document/select/parser.h>
 #include <vespa/document/update/documentupdate.h>
 #include <vespa/document/util/serializableexceptions.h>
+#include <vespa/document/repo/documenttyperepo.h>
 #include <vespa/documentapi/documentapi.h>
 #include <vespa/documentapi/messagebus/docapi_common.pb.h>
 #include <vespa/documentapi/messagebus/docapi_feed.pb.h>
@@ -83,12 +84,25 @@ document::GlobalId get_global_id(const protobuf::GlobalId& src) {
     return document::GlobalId(src.raw_gid().data()); // By copy
 }
 
-documentapi::TestAndSetCondition get_tas_condition(const protobuf::TestAndSetCondition& src) {
-    return documentapi::TestAndSetCondition(src.selection());
+TestAndSetCondition get_tas_condition(const protobuf::TestAndSetCondition& src) {
+    if (!src.selection().empty()) {
+        if (src.required_timestamp() != 0) {
+            return {src.required_timestamp(), src.selection()};
+        }
+        return TestAndSetCondition(src.selection());
+    } else if (src.required_timestamp() != 0) {
+        return TestAndSetCondition(src.required_timestamp());
+    }
+    return {};
 }
 
-void set_tas_condition(protobuf::TestAndSetCondition& dest, const documentapi::TestAndSetCondition& src) {
-    dest.set_selection(src.getSelection().data(), src.getSelection().size());
+void set_tas_condition(protobuf::TestAndSetCondition& dest, const TestAndSetCondition& src) {
+    if (src.has_selection()) {
+        dest.set_selection(src.getSelection().data(), src.getSelection().size());
+    }
+    if (src.has_required_timestamp()) {
+        dest.set_required_timestamp(src.required_timestamp());
+    }
 }
 
 std::shared_ptr<document::Document> get_document(const protobuf::Document& src_doc,
@@ -148,8 +162,8 @@ void log_codec_error(const char* op, const char* type, const char* msg) noexcept
     LOGBM(error, "Error during Protobuf %s for message type %s: %s", op, type, msg);
 }
 
-[[noreturn]] void rethrow_as_decorated_exception(const char* type, const vespalib::string& msg) __attribute((noinline));
-[[noreturn]] void rethrow_as_decorated_exception(const char* type, const vespalib::string& msg) {
+[[noreturn]] void rethrow_as_decorated_exception(const char* type, const std::string& msg) __attribute((noinline));
+[[noreturn]] void rethrow_as_decorated_exception(const char* type, const std::string& msg) {
     throw vespalib::IllegalArgumentException(vespalib::make_string("Failed decoding message of type %s: %s", type, msg.c_str()), VESPA_STRLOC);
 }
 
@@ -405,7 +419,7 @@ RoutableFactories80::remove_location_message_factory(std::shared_ptr<const docum
             document::BucketIdFactory factory;
             document::select::Parser parser(*type_repo, factory);
             auto msg = std::make_unique<RemoveLocationMessage>(factory, parser, string(get_raw_selection(src.selection())));
-            msg->setBucketSpace(vespalib::string(get_bucket_space(src.bucket_space())));
+            msg->setBucketSpace(std::string(get_bucket_space(src.bucket_space())));
             return msg;
         }
     );

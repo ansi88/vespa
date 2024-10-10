@@ -24,7 +24,7 @@ using search::query::PredicateQueryTerm;
 using std::make_pair;
 using std::pair;
 using std::vector;
-using vespalib::string;
+using std::string;
 using namespace search::predicate;
 
 namespace search::queryeval {
@@ -265,7 +265,7 @@ PredicateBlueprint::fetchPostings(const ExecuteInfo &) {
         PredicateAttribute::MinFeatureHandle mfh = predicate_attribute().getMinFeatureVector();
         Alloc kv(Alloc::alloc(mfh.second, vespalib::alloc::MemoryAllocator::HUGEPAGE_SIZE*4));
         _kVBacking.swap(kv);
-        _kV = BitVectorCache::CountVector(static_cast<uint8_t *>(_kVBacking.get()), mfh.second);
+        _kV = std::span<uint8_t>(static_cast<uint8_t *>(_kVBacking.get()), mfh.second);
         _index.computeCountVector(_cachedFeatures, _kV);
         for (const auto & entry : _bounds_dict_entries) {
             addBoundsPostingToK(entry.feature);

@@ -284,7 +284,7 @@ AsyncHandler::handle_delete_bucket_throttling(api::DeleteBucketCommand& cmd, Mes
     for (auto& meta : meta_entries) {
         auto token = throttler.blocking_acquire_one();
         remove_by_gid_metric->count.inc();
-        std::vector<spi::DocTypeGidAndTimestamp> to_remove = {{vespalib::string(meta->getDocumentType()), meta->getGid(), meta->getTimestamp()}};
+        std::vector<spi::DocTypeGidAndTimestamp> to_remove = {{std::string(meta->getDocumentType()), meta->getGid(), meta->getTimestamp()}};
         auto task = makeResultTask([bucket = cmd.getBucket(), token = std::move(token),
                                     invoke_delete_on_zero_refs, remove_by_gid_metric,
                                     op_timer = framework::MilliSecTimer(_env._component.getClock())]
@@ -297,7 +297,7 @@ AsyncHandler::handle_delete_bucket_throttling(api::DeleteBucketCommand& cmd, Mes
                 // Nothing else clever to do here. Throttle token and deleteBucket dispatch refs dropped implicitly.
             });
         LOG(spam, "%s: about to invoke removeByGidAsync(%s, %s, %" PRIu64 ")", cmd.getBucket().toString().c_str(),
-            vespalib::string(meta->getDocumentType()).c_str(), meta->getGid().toString().c_str(), meta->getTimestamp().getValue());
+            std::string(meta->getDocumentType()).c_str(), meta->getGid().toString().c_str(), meta->getTimestamp().getValue());
         _spi.removeByGidAsync(spi_bucket, std::move(to_remove), std::make_unique<ResultTaskOperationDone>(_sequencedExecutor, cmd.getBucketId(), std::move(task)));
     }
     // Actual bucket deletion happens when all remove ops have ACKed and dropped their refs to the destructor-invoked
@@ -431,9 +431,11 @@ AsyncHandler::tasConditionExists(const api::TestAndSetCommand & cmd) {
 }
 
 bool
-AsyncHandler::tasConditionMatches(const api::TestAndSetCommand & cmd, MessageTracker & tracker,
-                                  spi::Context & context, bool missingDocumentImpliesMatch) const {
+AsyncHandler::tasConditionMatches(const api::TestAndSetCommand& cmd, MessageTracker& tracker,
+                                  spi::Context& context, bool missingDocumentImpliesMatch) const {
     try {
+        LOG(debug, "Evaluating TaS condition %s for document '%s'",
+            cmd.getCondition().to_string().c_str(), cmd.getDocumentId().toString().c_str());
         TestAndSetHelper helper(_env, _spi, _bucketIdFactory,
                                 cmd.getCondition(),
                                 cmd.getBucket(), cmd.getDocumentId(),
@@ -442,15 +444,17 @@ AsyncHandler::tasConditionMatches(const api::TestAndSetCommand & cmd, MessageTra
 
         auto code = helper.retrieveAndMatch(context);
         if (code.failed()) {
+            LOG(debug, "TaS condition check failed: %s", code.toString().c_str());
             tracker.fail(code.getResult(), code.getMessage());
             return false;
         }
-    } catch (const TestAndSetException & e) {
-        auto code = e.getCode();
+    } catch (const TestAndSetException& e) {
+        const auto& code = e.getCode();
+        LOG(debug, "Get exception during TaS processing: %s", code.toString().c_str());
         tracker.fail(code.getResult(), code.getMessage());
         return false;
     }
-
+    LOG(debug, "TaS condition matched");
     return true;
 }
 
