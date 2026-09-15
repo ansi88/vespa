@@ -1,16 +1,25 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.vespa.clustercontroller.core.database;
 
+import com.yahoo.text.Text;
+import org.apache.zookeeper.AsyncCallback;
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.Watcher;
+import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.data.Stat;
-import org.apache.zookeeper.*;
 
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Logger;
-import java.util.*;
 
 import java.util.logging.Level;
 
-public class MasterDataGatherer {
+public final class MasterDataGatherer {
 
     private static final Logger log = Logger.getLogger(MasterDataGatherer.class.getName());
 
@@ -117,7 +126,7 @@ public class MasterDataGatherer {
                     } else {
                         // May happen when pending data watch error callbacks are triggered concurrently with
                         // internal voting state having already been cleared due to connectivity issues.
-                        log.log(Level.INFO, String.format("Fleetcontroller %d: ignoring removal of vote from node %d " +
+                        log.log(Level.INFO, Text.format("Fleetcontroller %d: ignoring removal of vote from node %d " +
                                 "since it was not present in existing vote mapping", nodeIndex, index));
                     }
                 } else {

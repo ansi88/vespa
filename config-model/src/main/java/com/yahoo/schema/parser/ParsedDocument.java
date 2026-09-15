@@ -10,12 +10,14 @@ import java.util.Map;
  * This class holds the extracted information after parsing a
  * "document" block in a schema (.sd) file, using simple data
  * structures as far as possible.  Do not put advanced logic here!
+ *
  * @author arnej27959
- **/
+ */
 public class ParsedDocument extends ParsedBlock {
+
     private final List<String> inherited = new ArrayList<>();
-    private final Map<String, ParsedDocument> resolvedInherits = new LinkedHashMap();
-    private final Map<String, ParsedDocument> resolvedReferences = new LinkedHashMap();
+    private final Map<String, ParsedDocument> resolvedInherits = new LinkedHashMap<>();
+    private final Map<String, ParsedDocument> resolvedReferences = new LinkedHashMap<>();
     private final Map<String, ParsedField> docFields = new LinkedHashMap<>();
     private final Map<String, ParsedStruct> docStructs = new LinkedHashMap<>();
     private final Map<String, ParsedAnnotation> docAnnotations = new LinkedHashMap<>();
@@ -39,7 +41,7 @@ public class ParsedDocument extends ParsedBlock {
         all.addAll(getResolvedReferences());
         return all;
     }
-    List<ParsedField> getFields() { return List.copyOf(docFields.values()); }
+    Map<String, ParsedField> getFields() { return docFields; }
     List<ParsedStruct> getStructs() { return List.copyOf(docStructs.values()); }
     ParsedStruct getStruct(String name) { return docStructs.get(name); }
     ParsedAnnotation getAnnotation(String name) { return docAnnotations.get(name); }
@@ -57,23 +59,23 @@ public class ParsedDocument extends ParsedBlock {
         return result;
     }
 
-    void inherit(String other) { inherited.add(other); }
+    public void inherit(String other) { inherited.add(other); }
 
-    void addField(ParsedField field) {
-        String fieldName = field.name().toLowerCase();
+    public void addField(ParsedField field) {
+        String fieldName = field.name().toLowerCase(java.util.Locale.ROOT);
         verifyThat(! docFields.containsKey(fieldName),
                    "Duplicate (case insensitively) " + field + " in document type '" + this.name() + "'");
         docFields.put(fieldName, field);
     }
 
-    void addStruct(ParsedStruct struct) {
+    public void addStruct(ParsedStruct struct) {
         String sName = struct.name();
         verifyThat(! docStructs.containsKey(sName), "already has struct", sName);
         docStructs.put(sName, struct);
         struct.tagOwner(this);
     }
 
-    void addAnnotation(ParsedAnnotation annotation) {
+    public void addAnnotation(ParsedAnnotation annotation) {
         String annName = annotation.name();
         verifyThat(! docAnnotations.containsKey(annName), "already has annotation", annName);
         docAnnotations.put(annName, annotation);

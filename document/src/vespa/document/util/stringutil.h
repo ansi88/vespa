@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace document {
 
@@ -22,20 +22,19 @@ public:
      * want the string to contain. (Useful to escape content to use in a context where you want
      * to use a given delimiter)
      */
-    static vespalib::string escape(const vespalib::string & source, char delimiter = '\0') {
-        vespalib::string escaped;
+    static std::string escape(const std::string& source, char delimiter = '\0') {
+        std::string escaped;
         return escape(source, escaped, delimiter);
     }
     /**
-    */
-    static const vespalib::string & escape(const vespalib::string & source, vespalib::string & dst,
-                                      char delimiter = '\0');
+     */
+    static const std::string& escape(const std::string& source, std::string& dst, char delimiter = '\0');
 
     /**
      * Unescape a string, replacing \\\\ \\n \\t \\f \\r or \\x## with their
      * ascii value counterparts.
      */
-    static vespalib::string unescape(std::string_view source);
+    static std::string unescape(std::string_view source);
 
     /**
      * Print whatever source points to in a readable format.
@@ -50,12 +49,8 @@ public:
      *                         only to the right column.
      * @param indent Whitespace to put after each newline in output
      */
-    static void printAsHex(std::ostream& output,
-                           const void* source, unsigned int size,
-                           unsigned int columnwidth = 16,
-                           bool inlinePrintables = false,
-                           const std::string& indent = "");
+    static void printAsHex(std::ostream& output, const void* source, unsigned int size, unsigned int columnwidth = 16,
+                           bool inlinePrintables = false, const std::string& indent = "");
 };
 
-} // document
-
+} // namespace document

@@ -19,22 +19,21 @@ struct ValueBuilderBase {
  * time. Enables decoupling of what the value should contain from how
  * to store the value.
  **/
-template <typename T>
-struct ValueBuilder : ValueBuilderBase {
+template <typename T> struct ValueBuilder : ValueBuilderBase {
     // add a dense subspace for the given address (label for all
     // mapped dimensions in canonical order). Note that previously
     // returned subspaces will be invalidated when new subspaces are
     // added. Also note that adding the same subspace multiple times
     // is not allowed.
-    virtual ArrayRef<T> add_subspace(ConstArrayRef<std::string_view> addr) = 0;
+    virtual std::span<T> add_subspace(std::span<const std::string_view> addr) = 0;
 
     // add a dense subspace for the given address where labels are
     // specified by shared string repo ids. Note that the caller is
     // responsible for making sure the ids are valid 'long enough'.
-    virtual ArrayRef<T> add_subspace(ConstArrayRef<string_id> addr) = 0;
+    virtual std::span<T> add_subspace(std::span<const string_id> addr) = 0;
 
     // convenience function to add a subspace with an empty address
-    ArrayRef<T> add_subspace() { return add_subspace(ConstArrayRef<string_id>()); }
+    std::span<T> add_subspace() { return add_subspace(std::span<const string_id>()); }
 
     // Given the ownership of the builder itself, produce the newly
     // created value. This means that builders can only be used once,
@@ -54,38 +53,40 @@ struct ValueBuilder : ValueBuilderBase {
 struct ValueBuilderFactory {
 private:
     template <typename T>
-    std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType &type, bool transient,
-            size_t num_mapped_dims_in, size_t subspace_size_in, size_t expected_subspaces) const
-    {
+    std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType& type, bool transient,
+                                                          size_t num_mapped_dims_in, size_t subspace_size_in,
+                                                          size_t expected_subspaces) const {
         assert(check_cell_type<T>(type.cell_type()));
-        auto base = create_value_builder_base(type, transient, num_mapped_dims_in, subspace_size_in, expected_subspaces);
-        auto *builder = static_cast<ValueBuilder<T>*>(base.get());
+        auto base =
+            create_value_builder_base(type, transient, num_mapped_dims_in, subspace_size_in, expected_subspaces);
+        auto* builder = static_cast<ValueBuilder<T>*>(base.get());
         base.release();
         return std::unique_ptr<ValueBuilder<T>>(builder);
     }
+
 public:
     template <typename T>
-    std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType &type,
-            size_t num_mapped_dims_in, size_t subspace_size_in, size_t expected_subspaces) const
-    {
+    std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType& type, size_t num_mapped_dims_in,
+                                                          size_t subspace_size_in, size_t expected_subspaces) const {
         return create_value_builder<T>(type, false, num_mapped_dims_in, subspace_size_in, expected_subspaces);
     }
     template <typename T>
-    std::unique_ptr<ValueBuilder<T>> create_transient_value_builder(const ValueType &type,
-            size_t num_mapped_dims_in, size_t subspace_size_in, size_t expected_subspaces) const
-    {
+    std::unique_ptr<ValueBuilder<T>> create_transient_value_builder(const ValueType& type, size_t num_mapped_dims_in,
+                                                                    size_t subspace_size_in,
+                                                                    size_t expected_subspaces) const {
         return create_value_builder<T>(type, true, num_mapped_dims_in, subspace_size_in, expected_subspaces);
     }
-    template <typename T>
-    std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType &type) const
-    {
+    template <typename T> std::unique_ptr<ValueBuilder<T>> create_value_builder(const ValueType& type) const {
         return create_value_builder<T>(type, false, type.count_mapped_dimensions(), type.dense_subspace_size(), 1);
     }
-    std::unique_ptr<Value> copy(const Value &value) const;
+    std::unique_ptr<Value> copy(const Value& value) const;
     virtual ~ValueBuilderFactory() = default;
+
 protected:
-    virtual std::unique_ptr<ValueBuilderBase> create_value_builder_base(const ValueType &type, bool transient,
-            size_t num_mapped_dims_in, size_t subspace_size_in, size_t expected_subspaces) const = 0;
+    virtual std::unique_ptr<ValueBuilderBase> create_value_builder_base(const ValueType& type, bool transient,
+                                                                        size_t num_mapped_dims_in,
+                                                                        size_t subspace_size_in,
+                                                                        size_t expected_subspaces) const = 0;
 };
 
-}
+} // namespace vespalib::eval

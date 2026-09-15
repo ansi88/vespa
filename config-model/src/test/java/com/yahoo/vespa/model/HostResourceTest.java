@@ -3,6 +3,7 @@ package com.yahoo.vespa.model;
 
 import com.yahoo.config.model.producer.TreeConfigProducer;
 import com.yahoo.config.model.test.MockRoot;
+import com.yahoo.config.provision.AzName;
 import com.yahoo.config.provision.ClusterMembership;
 import com.yahoo.config.provision.ClusterSpec;
 import com.yahoo.config.provision.HostSpec;
@@ -35,20 +36,18 @@ public class HostResourceTest {
 
     @Test
     void host_with_membership() {
-        HostResource host = hostResourceWithMemberships(ClusterMembership.from(clusterSpec(container, "container"), 0));
+        HostResource host = hostResourceWithMemberships(ClusterMembership.from(clusterSpec(container, "container"), 0, 0));
         assertClusterMembership(host, container, "container");
     }
 
     private void assertClusterMembership(HostResource host, ClusterSpec.Type type, String id) {
-        ClusterSpec membership = host.spec().membership().map(ClusterMembership::cluster)
-                .orElseThrow(() -> new RuntimeException("No cluster membership!"));
-
+        var membership = host.spec().membership().orElseThrow(() -> new RuntimeException("No cluster membership!"));
         assertEquals(type, membership.type());
         assertEquals(id, membership.id().value());
     }
 
     private static ClusterSpec clusterSpec(ClusterSpec.Type type, String id) {
-        return ClusterSpec.specification(type, ClusterSpec.Id.from(id)).group(ClusterSpec.Group.from(0)).vespaVersion("6.42").build();
+        return ClusterSpec.specification(type, ClusterSpec.Id.from(id)).vespaVersion("6.42").build();
     }
 
     private static HostResource hostResourceWithMemberships(ClusterMembership membership) {
@@ -56,7 +55,8 @@ public class HostResourceTest {
                                 new HostSpec("hostname",
                                              NodeResources.unspecified(), NodeResources.unspecified(), NodeResources.unspecified(),
                                              membership,
-                                             Optional.empty(), Optional.empty(), Optional.empty()));
+                                             Optional.empty(), Optional.empty(), Optional.empty(),
+                                             AzName.defaultName()));
     }
 
     private static int counter = 0;

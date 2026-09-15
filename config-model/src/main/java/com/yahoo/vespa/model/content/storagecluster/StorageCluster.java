@@ -27,43 +27,39 @@ public class StorageCluster extends TreeConfigProducer<StorageNode>
         MetricsmanagerConfig.Producer
 {
     public static class Builder extends VespaDomBuilder.DomConfigProducerBuilderBase<StorageCluster> {
+
         @Override
         protected StorageCluster doBuild(DeployState deployState, TreeConfigProducer<AnyConfigProducer> ancestor, Element producerSpec) {
-            final ModelElement clusterElem = new ModelElement(producerSpec);
-            final ContentCluster cluster = (ContentCluster)ancestor;
-            var featureFlags = deployState.getProperties().featureFlags();
-
-            return new StorageCluster(ancestor,
+            ModelElement clusterElem = new ModelElement(producerSpec);
+            return new StorageCluster((ContentCluster) ancestor,
                                       ContentCluster.getClusterId(clusterElem),
-                                      new FileStorProducer.Builder().build(deployState.getProperties(), cluster, clusterElem),
-                                      new StorServerProducer.Builder().build(deployState.getProperties(), clusterElem),
+                                      new FileStorProducer.Builder().build(deployState.getProperties(), clusterElem),
+                                      new StorServerProducer.Builder().build(clusterElem),
                                       new StorVisitorProducer.Builder().build(clusterElem),
-                                      new PersistenceProducer.Builder().build(clusterElem),
-                                      featureFlags.enforceStrictlyIncreasingClusterStateVersions());
+                                      new PersistenceProducer.Builder().build(clusterElem));
         }
     }
 
+    private final ContentCluster parent;
     private final String clusterName;
     private final FileStorProducer fileStorProducer;
     private final StorServerProducer storServerProducer;
     private final StorVisitorProducer storVisitorProducer;
     private final PersistenceProducer persistenceProducer;
-    private final boolean enforceStrictlyIncreasingClusterStateVersions;
 
-    StorageCluster(TreeConfigProducer<?> parent,
+    StorageCluster(ContentCluster parent,
                    String clusterName,
                    FileStorProducer fileStorProducer,
                    StorServerProducer storServerProducer,
                    StorVisitorProducer storVisitorProducer,
-                   PersistenceProducer persistenceProducer,
-                   boolean enforceStrictlyIncreasingClusterStateVersions) {
+                   PersistenceProducer persistenceProducer) {
         super(parent, "storage");
+        this.parent = parent;
         this.clusterName = clusterName;
         this.fileStorProducer = fileStorProducer;
         this.storServerProducer = storServerProducer;
         this.storVisitorProducer = storVisitorProducer;
         this.persistenceProducer = persistenceProducer;
-        this.enforceStrictlyIncreasingClusterStateVersions = enforceStrictlyIncreasingClusterStateVersions;
     }
 
     @Override
@@ -90,7 +86,7 @@ public class StorageCluster extends TreeConfigProducer<StorageNode>
     @Override
     public void getConfig(StorServerConfig.Builder builder) {
         storServerProducer.getConfig(builder);
-        builder.require_strictly_increasing_cluster_state_versions(enforceStrictlyIncreasingClusterStateVersions);
+        builder.require_strictly_increasing_cluster_state_versions(parent.requireStrictlyIncreasingClusterStateVersions());
     }
 
     @Override

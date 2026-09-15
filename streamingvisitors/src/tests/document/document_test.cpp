@@ -1,17 +1,16 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
-#include <vespa/document/fieldvalue/fieldvalues.h>
 #include <vespa/document/datatype/documenttype.h>
-#include <vespa/vsm/common/storagedocument.h>
+#include <vespa/document/fieldvalue/fieldvalues.h>
 #include <vespa/vespalib/gtest/gtest.h>
 #include <vespa/vespalib/stllike/asciistream.h>
+#include <vespa/vsm/common/storagedocument.h>
 
 using namespace document;
 
 namespace vsm {
 
-TEST(DocumentTest, storage_document)
-{
+TEST(DocumentTest, storage_document) {
     DocumentType dt("testdoc", 0);
 
     Field fa("a", 0, *DataType::STRING);
@@ -25,7 +24,7 @@ TEST(DocumentTest, storage_document)
 
     SharedFieldPathMap fpmap(new FieldPathMapT());
     fpmap->emplace_back();
-    dt.buildFieldPath(fpmap->back(),"a");
+    dt.buildFieldPath(fpmap->back(), "a");
     fpmap->emplace_back();
     dt.buildFieldPath(fpmap->back(), "b");
     fpmap->emplace_back();
@@ -61,24 +60,24 @@ TEST(DocumentTest, storage_document)
     EXPECT_TRUE(!sdoc.setField(3, FieldValue::UP(new StringFieldValue("thud"))));
 
     SharedFieldPathMap fim;
-    StorageDocument s2(std::make_unique<document::Document>(), fim, 0);
+    StorageDocument    s2(std::make_unique<document::Document>(), fim, 0);
     EXPECT_EQ(IdString().toString(), s2.docDoc().getId().toString());
 }
 
-TEST(DocumentTest, string_field_id_t_map)
-{
+TEST(DocumentTest, string_field_id_t_map) {
     StringFieldIdTMap m;
     EXPECT_EQ(0u, m.highestFieldNo());
     EXPECT_TRUE(StringFieldIdTMap::npos == m.fieldNo("unknown"));
+    // Field id 0 is reserved for the "no field", so implicit ids start at 1.
     m.add("f1");
-    EXPECT_EQ(0u, m.fieldNo("f1"));
-    EXPECT_EQ(1u, m.highestFieldNo());
-    m.add("f1");
-    EXPECT_EQ(0u, m.fieldNo("f1"));
-    EXPECT_EQ(1u, m.highestFieldNo());
-    m.add("f2");
-    EXPECT_EQ(1u, m.fieldNo("f2"));
+    EXPECT_EQ(1u, m.fieldNo("f1"));
     EXPECT_EQ(2u, m.highestFieldNo());
+    m.add("f1");
+    EXPECT_EQ(1u, m.fieldNo("f1"));
+    EXPECT_EQ(2u, m.highestFieldNo());
+    m.add("f2");
+    EXPECT_EQ(2u, m.fieldNo("f2"));
+    EXPECT_EQ(3u, m.highestFieldNo());
     m.add("f3", 7);
     EXPECT_EQ(7u, m.fieldNo("f3"));
     EXPECT_EQ(8u, m.highestFieldNo());
@@ -88,20 +87,23 @@ TEST(DocumentTest, string_field_id_t_map)
     m.add("f2", 13);
     EXPECT_EQ(13u, m.fieldNo("f2"));
     EXPECT_EQ(14u, m.highestFieldNo());
+    // An implicitly assigned id must never collide with an explicitly assigned one.
     m.add("f4");
-    EXPECT_EQ(3u, m.fieldNo("f4"));
-    EXPECT_EQ(14u, m.highestFieldNo());
+    EXPECT_EQ(14u, m.fieldNo("f4"));
+    EXPECT_EQ(15u, m.highestFieldNo());
+    m.add("f5");
+    EXPECT_EQ(15u, m.fieldNo("f5"));
+    EXPECT_EQ(16u, m.highestFieldNo());
     {
         vespalib::asciistream os;
-        StringFieldIdTMap t;
+        StringFieldIdTMap     t;
         t.add("b");
         t.add("a");
         os << t;
-        EXPECT_EQ(vespalib::string("a = 1\nb = 0\n"), os.view());
+        EXPECT_EQ(std::string("a = 2\nb = 1\n"), os.view());
     }
-    
 }
 
-}
+} // namespace vsm
 
 GTEST_MAIN_RUN_ALL_TESTS()

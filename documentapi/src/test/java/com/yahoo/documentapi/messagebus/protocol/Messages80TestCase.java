@@ -12,13 +12,16 @@ import com.yahoo.document.TestAndSetCondition;
 import com.yahoo.document.fieldpathupdate.RemoveFieldPathUpdate;
 import com.yahoo.document.idstring.IdString;
 import com.yahoo.messagebus.Routable;
+import com.yahoo.text.Text;
 import com.yahoo.text.Utf8;
 import com.yahoo.vdslib.SearchResult;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -88,6 +91,8 @@ public class Messages80TestCase extends MessagesTestBase {
                 var msg2 = (GetDocumentMessage)deserialize("GetDocumentMessage", DocumentProtocol.MESSAGE_GETDOCUMENT, lang);
                 assertEquals("id:ns:testdoc::", msg2.getDocumentId().toString());
                 assertEquals("foo bar", msg2.getFieldSet());
+                assertEquals(null, msg2.getDebugReplicaNodeId());
+                assertEquals(false, msg2.hasDebugReplicaNodeId());
             });
         }
     }
@@ -141,6 +146,29 @@ public class Messages80TestCase extends MessagesTestBase {
             });
         }
 
+        private record NamedCondition(String name, TestAndSetCondition condition) {}
+
+        static List<NamedCondition> tasConditions() {
+            return List.of(new NamedCondition("cond-only",   new TestAndSetCondition("There's just one condition")),
+                           new NamedCondition("ts-only",     TestAndSetCondition.ofRequiredTimestamp(0x1badcafef000000dL)),
+                           new NamedCondition("cond-and-ts", TestAndSetCondition.ofRequiredTimestampWithSelectionFallback(
+                                   0x1badcafef000000dL, "There's just one condition")));
+        }
+
+        // We assume TaS codec is the same across message types, so use Put as a proxy for all TaS-support types.
+        void verifyTasConditionsCanHaveSelectionAndOrTimestamp() {
+            for (var tas : tasConditions()) {
+                var msg = new PutDocumentMessage(new DocumentPut(new Document(protocol.getDocumentTypeManager().getDocumentType("testdoc"), "id:ns:testdoc::")));
+                msg.setCondition(tas.condition);
+                var msgAndCondName = Text.format("PutDocumentMessage-%s", tas.name);
+                serialize(msgAndCondName, msg);
+                forEachLanguage((lang) -> {
+                    var decoded = (PutDocumentMessage)deserialize(msgAndCondName, DocumentProtocol.MESSAGE_PUTDOCUMENT, lang);
+                    assertEquals(msg.getCondition(), decoded.getCondition());
+                });
+            }
+        }
+
         @Override
         public void run() {
             var msg = new PutDocumentMessage(new DocumentPut(new Document(protocol.getDocumentTypeManager().getDocumentType("testdoc"), "id:ns:testdoc::")));
@@ -156,11 +184,12 @@ public class Messages80TestCase extends MessagesTestBase {
                 assertEquals(msg.getDocumentPut().getDocument().getDataType().getName(), deserializedDoc.getDataType().getName());
                 assertEquals(msg.getDocumentPut().getDocument().getId().toString(), deserializedDoc.getId().toString());
                 assertEquals(msg.getTimestamp(), deserializedMsg.getTimestamp());
-                assertEquals(msg.getCondition().getSelection(), deserializedMsg.getCondition().getSelection());
+                assertEquals(msg.getCondition(), deserializedMsg.getCondition());
                 assertFalse(deserializedMsg.getCreateIfNonExistent());
                 assertEquals(0x1badcafef000000dL, deserializedMsg.getPersistedTimestamp());
             });
             verifyCreateIfNonExistentFlag();
+            verifyTasConditionsCanHaveSelectionAndOrTimestamp();
         }
     }
 
@@ -240,7 +269,7 @@ public class Messages80TestCase extends MessagesTestBase {
                 assertEquals(msg.getDocumentUpdate(), deserializedMsg.getDocumentUpdate());
                 assertEquals(msg.getNewTimestamp(), deserializedMsg.getNewTimestamp());
                 assertEquals(msg.getOldTimestamp(), deserializedMsg.getOldTimestamp());
-                assertEquals(msg.getCondition().getSelection(), deserializedMsg.getCondition().getSelection());
+                assertEquals(msg.getCondition(), deserializedMsg.getCondition());
             });
         }
 
@@ -433,6 +462,7 @@ public class Messages80TestCase extends MessagesTestBase {
         @Override
         public void run() throws Exception {
             test_result_with_match_features();
+            test_result_with_errors();
 
             Routable routable = deserialize("QueryResultMessage-1", DocumentProtocol.MESSAGE_QUERYRESULT, Language.CPP);
             assertTrue(routable instanceof QueryResultMessage);
@@ -526,6 +556,16 @@ public class Messages80TestCase extends MessagesTestBase {
             mf = h.getMatchFeatures().get();
             assertEquals(1.0, mf.field("foo").asDouble(), 1E-6);
             assertEqualsData(new byte[] { 'H', 'i' }, mf.field("bar").asData());
+        }
+
+        void test_result_with_errors() {
+            Routable routable = deserialize("QueryResultMessage-7", DocumentProtocol.MESSAGE_QUERYRESULT, Language.CPP);
+            assertTrue(routable instanceof QueryResultMessage);
+
+            var msg = (QueryResultMessage) routable;
+            assertEquals(0, msg.getResult().getHitCount());
+            var errors = msg.getResult().getErrors();
+            assertArrayEquals(new String[]{"hello", "world!"}, errors);
         }
     }
 

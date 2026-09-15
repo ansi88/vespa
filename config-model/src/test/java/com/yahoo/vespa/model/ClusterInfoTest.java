@@ -232,11 +232,11 @@ public class ClusterInfoTest {
         CloudAccount account = CloudAccount.from("gcp:foobar");
         assertEquals(Duration.ofHours(24), requestedCapacityIn(account, gcp, "default", "us-east-1", servicesXml, deploymentXml).get(new ClusterSpec.Id("testcontainer")).clusterInfo().hostTTL());
         assertEquals(Duration.ZERO, requestedCapacityIn(account, gcp, "default", "us-north-1", servicesXml, deploymentXml).get(new ClusterSpec.Id("testcontainer")).clusterInfo().hostTTL());
-        assertEquals(Duration.ZERO, requestedCapacityIn(CloudAccount.empty, gcp, "default", "us-west-1", servicesXml, deploymentXml).get(new Id("testcontainer")).clusterInfo().hostTTL());
+        assertEquals(Duration.ZERO, requestedCapacityIn(CloudAccount.unspecified(), gcp, "default", "us-west-1", servicesXml, deploymentXml).get(new Id("testcontainer")).clusterInfo().hostTTL());
     }
 
     private Map<ClusterSpec.Id, Capacity> requestedCapacityIn(String instance, String region, String servicesXml, String deploymentXml) throws Exception {
-        return requestedCapacityIn(null, Cloud.defaultCloud(), instance, region, servicesXml, deploymentXml);
+        return requestedCapacityIn(CloudAccount.unspecified(), Cloud.defaultCloud(), instance, region, servicesXml, deploymentXml);
     }
 
     private Map<ClusterSpec.Id, Capacity> requestedCapacityIn(CloudAccount account, Cloud cloud, String instance, String region, String servicesXml, String deploymentXml) throws Exception {
@@ -251,11 +251,11 @@ public class ClusterInfoTest {
                                   .zone(new Zone(cloud, SystemName.Public, Environment.prod, RegionName.from(region)))
                                   .properties(new TestProperties().setHostedVespa(true)
                                                                   .setCloudAccount(account)
-                                                                  .setApplicationId(ApplicationId.from(TenantName.defaultName(), ApplicationName.defaultName(), InstanceName.from(instance)))
-                                                                  .setZone(new Zone(Environment.prod, RegionName.from(region))))
+                                                                  .setApplicationId(ApplicationId.from(TenantName.defaultName(), ApplicationName.defaultName(), InstanceName.from(instance))))
+                                  .zone(new Zone(cloud, SystemName.Public, Environment.prod, RegionName.from(region)))
                                   .endpoints(Set.of(new ContainerEndpoint("testcontainer", ApplicationClusterEndpoint.Scope.zone, List.of("tc.example.com"))))
                                   .modelHostProvisioner(provisioner)
-                                  .provisioned(provisioner.provisioned())
+                                  .zone(new Zone(Environment.prod, RegionName.from(region)))
                                   .build();
         new VespaModel(new NullConfigModelRegistry(), deployState);
         return deployState.provisioned().capacities();

@@ -11,6 +11,8 @@ import com.yahoo.schema.document.Attribute;
 import com.yahoo.schema.document.Case;
 import com.yahoo.schema.document.Dictionary;
 import com.yahoo.schema.document.HnswIndexParams;
+import com.yahoo.text.Text;
+import com.yahoo.vespa.model.application.validation.Validation;
 import com.yahoo.vespa.model.application.validation.change.VespaConfigChangeAction;
 import com.yahoo.vespa.model.application.validation.change.VespaRestartAction;
 
@@ -34,8 +36,8 @@ public class AttributeChangeValidator {
     private final NewDocumentType currentDocType;
     private final AttributeFields nextFields;
     private final IndexSchema nextIndexSchema;
-    private final NewDocumentType nextDocType;
-    private final DeployState deployState;
+    private final NewDocumentType          nextDocType;
+    private final Validation.ChangeContext context;
 
     public AttributeChangeValidator(ClusterSpec.Id id,
                                     AttributeFields currentFields,
@@ -44,7 +46,7 @@ public class AttributeChangeValidator {
                                     AttributeFields nextFields,
                                     IndexSchema nextIndexSchema,
                                     NewDocumentType nextDocType,
-                                    DeployState deployState) {
+                                    Validation.ChangeContext context) {
         this.id = id;
         this.currentFields = currentFields;
         this.currentIndexSchema = currentIndexSchema;
@@ -52,7 +54,7 @@ public class AttributeChangeValidator {
         this.nextFields = nextFields;
         this.nextIndexSchema = nextIndexSchema;
         this.nextDocType = nextDocType;
-        this.deployState = deployState;
+        this.context = context;
     }
 
     public List<VespaConfigChangeAction> validate() {
@@ -120,6 +122,7 @@ public class AttributeChangeValidator {
                     validateAttributeHnswIndexSetting(id, current, next, HnswIndexParams::maxLinksPerNode, "max-links-per-node", result);
                     validateAttributeHnswIndexSetting(id, current, next, HnswIndexParams::neighborsToExploreAtInsert, "neighbors-to-explore-at-insert", result);
                 }
+                validateAttributeQuantizationChanges(current, next);
             }
         }
         return result;
@@ -136,37 +139,63 @@ public class AttributeChangeValidator {
         }
     }
 
-    private static <T> void validateAttributeProperty(ClusterSpec.Id id,
-                                                      Attribute current, Attribute next,
-                                                      Function<Attribute, T> settingValueProvider, String setting,
-                                                      List<VespaConfigChangeAction> result) {
+    private <T> void validateAttributeProperty(ClusterSpec.Id id,
+                                               Attribute current, Attribute next,
+                                               Function<Attribute, T> settingValueProvider, String setting,
+                                               List<VespaConfigChangeAction> result) {
         T currentValue = settingValueProvider.apply(current);
         T nextValue = settingValueProvider.apply(next);
         if ( ! Objects.equals(currentValue, nextValue)) {
-            String message = String.format("change property '%s' from '%s' to '%s'", setting, currentValue, nextValue);
+            String message = Text.format("change property '%s' from '%s' to '%s'", setting, currentValue, nextValue);
+            if (hasHnswIndex(current) && hasHnswIndex(next))
+                context.invalid(ValidationId.hnswSettingsChange,
+                                    message + ". This requires the hnsw index to be rebuilt during initialization, which may take a long time");
             result.add(new VespaRestartAction(id, new ChangeMessageBuilder(next.getName()).addChange(message).build()));
         }
     }
 
-    private static <T> void validateAttributeHnswIndexSetting(ClusterSpec.Id id,
-                                                              Attribute currentAttr, Attribute nextAttr,
-                                                              Function<HnswIndexParams, T> settingValueProvider,
-                                                              String setting,
-                                                              List<VespaConfigChangeAction> result) {
+    private <T> void validateAttributeHnswIndexSetting(ClusterSpec.Id id,
+                                                       Attribute currentAttr, Attribute nextAttr,
+                                                       Function<HnswIndexParams, T> settingValueProvider,
+                                                       String setting,
+                                                       List<VespaConfigChangeAction> result) {
         T currentValue = settingValueProvider.apply(currentAttr.hnswIndexParams().get());
         T nextValue = settingValueProvider.apply(nextAttr.hnswIndexParams().get());
         if (!Objects.equals(currentValue, nextValue)) {
-            String message = String.format("change hnsw index property '%s' from '%s' to '%s'", setting, currentValue, nextValue);
+            String message = Text.format("change hnsw index property '%s' from '%s' to '%s'", setting, currentValue, nextValue);
+            if (setting.equals("max-links-per-node"))
+                context.invalid(ValidationId.hnswSettingsChange,
+                                    message + ". This requires the hnsw index to be rebuilt during initialization, which may take a long time");
             result.add(new VespaRestartAction(id, new ChangeMessageBuilder(nextAttr.getName()).addChange(message).build()));
         }
     }
 
     private void validatePagedAttributeRemoval(Attribute current, Attribute next) {
         if (current.isPaged() && !next.isPaged()) {
-            deployState.validationOverrides().invalid(ValidationId.pagedSettingRemoval,
+            context.invalid(ValidationId.pagedSettingRemoval,
                               current + "' has setting 'paged' removed. " +
-                              "This may cause content nodes to run out of memory as the entire attribute is loaded into memory",
-                              deployState.now());
+                              "This may cause content nodes to run out of memory as the entire attribute is loaded into memory");
+        }
+    }
+
+    private void validateAttributeQuantizationChanges(Attribute current, Attribute next) {
+        if (!current.isQuantized() && !next.isQuantized()) {
+            return; // No quantization; nothing for us to meddle with.
+        }
+        var msgSuffix = "First remove the attribute aspect, redeploy and restart content nodes, " +
+                        "then re-add the attribute with updated quantization settings.";
+        if (current.isQuantized() != next.isQuantized()) {
+            context.illegal(Text.format("Quantization cannot be added or removed on existing %s. %s", current, msgSuffix));
+            return;
+        }
+        // At this point both attribute versions are known to be quantized.
+        if (current.quantizationParams().get().bits() != next.quantizationParams().get().bits()) {
+            context.illegal(Text.format("Quantization bit count cannot be changed in-place on existing %s. %s", current, msgSuffix));
+        }
+        // TODO only disallow distance metric change if the backend quantization semantics actually change?
+        //  (i.e. MSE vs. inner product)
+        if (!current.distanceMetric().equals(next.distanceMetric())) {
+            context.illegal(Text.format("Distance metric cannot be changed in-place on existing quantized %s. %s", current, msgSuffix));
         }
     }
 

@@ -1,7 +1,6 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.dispatch.rpc;
 
-import com.yahoo.search.dispatch.FillInvoker;
 import com.yahoo.search.dispatch.rpc.Client.NodeConnection;
 import com.yahoo.search.dispatch.rpc.RpcClient.RpcNodeConnection;
 import com.yahoo.vespa.config.search.DispatchConfig;
@@ -16,8 +15,7 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * RpcResourcePool constructs {@link FillInvoker} objects that communicate with content nodes over RPC. It also contains
- * the RPC connection pool.
+ * RpcResourcePool contains the RPC connection pool.
  *
  * @author ollivir
  */
@@ -79,11 +77,56 @@ public class RpcResourcePool implements RpcConnectionPool {
     }
 
     @Override
+    public RpcConnectionPool snapshot() {
+        return new View(nodeConnectionPools);
+    }
+
+    /**
+     * An immutable view of one generation of the node set. Queries of a generation resolve
+     * connections through this, so a node removed by a later node set update stays resolvable
+     * to them: updateNodes leaves its connections open until the generation has drained.
+     */
+    private static class View implements RpcConnectionPool {
+
+        private final Map<Integer, NodeConnectionPool> pools;
+
+        View(Map<Integer, NodeConnectionPool> pools) { this.pools = Map.copyOf(pools); }
+
+        @Override
+        public NodeConnection getConnection(int nodeId) {
+            var pool = pools.get(nodeId);
+            return pool == null ? null : pool.nextConnection();
+        }
+
+        @Override
+        public Collection<Integer> knownNodeIds() { return pools.keySet(); }
+
+        @Override
+        public RpcConnectionPool snapshot() { return this; }
+
+        @Override
+        public Collection<? extends AutoCloseable> updateNodes(DispatchNodesConfig nodesConfig) {
+            throw new UnsupportedOperationException("Immutable view of the node set");
+        }
+
+        @Override
+        public void close() {
+            throw new UnsupportedOperationException("Views do not own the connections");
+        }
+
+    }
+
+    @Override
     public void close() {
         nodeConnectionPools.values().forEach(NodeConnectionPool::close);
         if (rpcClient != null) {
             rpcClient.close();
         }
+    }
+
+    @Override
+    public Collection<Integer> knownNodeIds() {
+        return nodeConnectionPools.keySet();
     }
 
     private static class NodeConnectionPool implements AutoCloseable {

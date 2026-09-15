@@ -10,6 +10,8 @@ vespa_add_library(searchlib_diskindex OBJECT
     disktermblueprint.cpp
     docidmapper.cpp
     extposocc.cpp
+    features_size_flush.cpp
+    field_index.cpp
     field_merger.cpp
     field_mergers_state.cpp
     field_merger_task.cpp
@@ -23,6 +25,7 @@ vespa_add_library(searchlib_diskindex OBJECT
     indexbuilder.cpp
     pagedict4file.cpp
     pagedict4randread.cpp
+    posting_list_cache.cpp
     wordnummapper.cpp
     zc4_posting_header.cpp
     zc4_posting_reader.cpp

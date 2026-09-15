@@ -3,6 +3,7 @@ package com.yahoo.slime;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Spliterator;
 import java.util.Spliterators;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -103,6 +105,31 @@ public class SlimeUtils {
         return slime;
     }
 
+    /**
+     * Decodes UTF-8 JSON read incrementally from the given stream into Slime, without
+     * buffering the whole input into a single array first. The stream is read in chunks
+     * on demand as the parser consumes bytes.
+     * <p>
+     * Invalid JSON (or an {@link IOException} while reading the stream) does not throw;
+     * it produces a Slime wrapping a {@code partial_result} object with {@code error_message}
+     * and {@code offending_input} fields, the same as the other {@code jsonToSlime} overloads.
+     * Note that when the error occurs after several chunks have been read, the offending
+     * input only covers the most recently buffered bytes (see {@link BufferedInput#getOffending}).
+     * <p>
+     * The caller retains ownership of the stream and is responsible for closing it.
+     */
+    public static Slime jsonToSlime(InputStream json) {
+        var in = new BufferedInput(() -> {
+            byte[] buffer = new byte[8192];
+            int read = json.read(buffer);
+            if (read < 0) return null;
+            return read == buffer.length ? buffer : Arrays.copyOf(buffer, read);
+        });
+        Slime slime = new Slime();
+        new JsonDecoder().decode(slime, in);
+        return slime;
+    }
+
     public static Slime jsonToSlime(String json) {
         return jsonToSlime(json.getBytes(StandardCharsets.UTF_8));
     }
@@ -131,7 +158,7 @@ public class SlimeUtils {
     }
 
     public static Optional<String> optionalString(Inspector inspector) {
-        return isPresent(inspector) ? Optional.of(inspector.asString()) : Optional.empty();
+        return optional(inspector, Inspector::asString);
     }
 
     public static OptionalLong optionalLong(Inspector field) {
@@ -147,11 +174,15 @@ public class SlimeUtils {
     }
 
     public static Optional<Instant> optionalInstant(Inspector field) {
-        return isPresent(field) ? Optional.of(Instant.ofEpochMilli(field.asLong())) : Optional.empty();
+        return optional(field, f -> Instant.ofEpochMilli(f.asLong()));
     }
 
     public static Optional<Duration> optionalDuration(Inspector field) {
-        return isPresent(field) ? Optional.of(Duration.ofMillis(field.asLong())) : Optional.empty();
+        return optional(field, f -> Duration.ofMillis(f.asLong()));
+    }
+
+    public static <T> Optional<T> optional(Inspector field, Function<Inspector, T> factory) {
+        return isPresent(field) ? Optional.of(factory.apply(field)) : Optional.empty();
     }
 
     public static Iterator<Inspector> entriesIterator(Inspector inspector) {

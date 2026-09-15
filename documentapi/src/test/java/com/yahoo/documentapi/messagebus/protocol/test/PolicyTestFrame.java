@@ -48,13 +48,13 @@ import static org.junit.Assert.fail;
 public class PolicyTestFrame {
 
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
-    private String identity;
+    private final String identity;
     private Slobrok slobrok;
     private MessageBus mbus;
     private MyNetwork net;
     private Message msg = null;
     private HopSpec hop = null;
-    private Receptor handler = new Receptor();
+    private final Receptor handler = new Receptor();
 
     /**
      * Create an anonymous test frame.
@@ -96,13 +96,6 @@ public class PolicyTestFrame {
         slobrok = frame.slobrok;
         net = frame.net;
         mbus = frame.mbus;
-    }
-
-    // Inherit doc from Object.
-    @Override
-    public void finalize() throws Throwable {
-        destroy();
-        super.finalize();
     }
 
     /**

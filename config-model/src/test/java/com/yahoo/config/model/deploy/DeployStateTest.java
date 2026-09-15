@@ -11,6 +11,7 @@ import com.yahoo.config.model.application.provider.FilesApplicationPackage;
 import com.yahoo.config.model.provision.InMemoryProvisioner;
 import com.yahoo.config.model.test.MockApplicationPackage;
 import com.yahoo.config.provision.ApplicationId;
+import com.yahoo.io.reader.NamedReader;
 import com.yahoo.vespa.config.ConfigDefinition;
 import com.yahoo.vespa.config.ConfigDefinitionKey;
 import com.yahoo.vespa.model.VespaModel;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.xml.sax.SAXException;
 import java.io.File;
 import java.io.IOException;
+import java.io.StringReader;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,15 +44,32 @@ public class DeployStateTest {
     }
 
     @Test
+    void testAdditionalSchemasAreAdded() {
+        String schema = "schema additional {\n" +
+                        "  document additional {\n" +
+                        "    field f type string { indexing: summary }\n" +
+                        "  }\n" +
+                        "}\n";
+        DeployState state = new DeployState.Builder()
+                .applicationPackage(MockApplicationPackage.createEmpty())
+                .additionalSchemas(List.of(new NamedReader("additional.sd", new StringReader(schema))))
+                .build();
+        assertTrue(state.getSchemas().stream().anyMatch(s -> s.getName().equals("additional")),
+                   "the additional schema must be part of the application");
+    }
+
+    @Test
     void testPreviousModelIsProvided() throws IOException, SAXException {
-        VespaModel prevModel = new VespaModel(MockApplicationPackage.createEmpty());
-        DeployState.Builder builder = new DeployState.Builder();
+        DeployState.Builder builder = TestDeployState.createBuilder()
+                .applicationPackage(MockApplicationPackage.createEmpty());
+        VespaModel prevModel = new VespaModel(builder.build());
+
         assertEquals(prevModel, builder.previousModel(prevModel).build().getPreviousModel().get());
     }
 
     @Test
     void testProperties() {
-        DeployState.Builder builder = new DeployState.Builder();
+        DeployState.Builder builder = TestDeployState.createBuilder();
         DeployState state = builder.build();
         assertEquals(ApplicationId.defaultId(), state.getProperties().applicationId());
         ApplicationId customId = new ApplicationId.Builder()
@@ -68,7 +87,7 @@ public class DeployStateTest {
         defs.put(new ConfigDefinitionKey("foo", "bar"), new com.yahoo.vespa.config.buildergen.ConfigDefinition("foo", new String[]{"namespace=bar", "foo int default=0"}));
         defs.put(new ConfigDefinitionKey("test2", "a.b"),
                 new com.yahoo.vespa.config.buildergen.ConfigDefinition("namespace-in-filename", new String[]{"namespace=a.b", "doubleVal double default=1.0"}));
-        ApplicationPackage app = FilesApplicationPackage.fromFile(new File("src/test/cfg//application/app1"));
+        ApplicationPackage app = FilesApplicationPackage.fromDir(new File("src/test/cfg//application/app1"), Map.of());
         DeployState state = createDeployState(app, defs);
 
         assertNotNull(state.getConfigDefinition(new ConfigDefinitionKey("foo", "bar")));
@@ -85,7 +104,7 @@ public class DeployStateTest {
         defs.put(new ConfigDefinitionKey("test2", "a.b"), new com.yahoo.vespa.config.buildergen.ConfigDefinition("test2", new String[]{"namespace=a.b", "doubleVal double default=1.0"}));
         //defs.put(new ConfigDefinitionKey("test2", "c.d"), new com.yahoo.vespa.config.buildergen.ConfigDefinition("test2", new String[]{"namespace=c.d", "doubleVal double default=1.0"}));
         defs.put(new ConfigDefinitionKey("test3", "xyzzy"), new com.yahoo.vespa.config.buildergen.ConfigDefinition("test3", new String[]{"namespace=xyzzy", "message string"}));
-        ApplicationPackage app = FilesApplicationPackage.fromFile(new File("src/test/cfg//application/app1"));
+        ApplicationPackage app = FilesApplicationPackage.fromDir(new File("src/test/cfg//application/app1"), Map.of());
         DeployState state = createDeployState(app, defs);
 
         assertNotNull(state.getConfigDefinition(new ConfigDefinitionKey("test2", "a.b")));
@@ -119,4 +138,3 @@ public class DeployStateTest {
     }
 
 }
-

@@ -2,43 +2,37 @@
 
 #include <vespa/searchcore/proton/common/state_reporter_utils.h>
 #include <vespa/vespalib/data/slime/slime.h>
-#include <vespa/vespalib/testkit/test_kit.h>
+#include <vespa/vespalib/gtest/gtest.h>
 
 using namespace proton;
 using namespace vespalib::slime;
 using vespalib::Slime;
 
-vespalib::string
-toString(const StatusReport &statusReport)
-{
+namespace {
+
+std::string toString(const StatusReport& statusReport) {
     Slime slime;
     StateReporterUtils::convertToSlime(statusReport, SlimeInserter(slime));
     return slime.toString();
 }
 
-TEST("require that simple status report is correctly converted to slime")
-{
-    EXPECT_EQUAL(
-            "{\n"
-            "    \"state\": \"ONLINE\"\n"
-            "}\n",
-            toString(StatusReport(StatusReport::Params("").
-                    internalState("ONLINE"))));
+} // namespace
+
+TEST(StateReporterUtilsTest, require_that_simple_status_report_is_correctly_converted_to_slime) {
+    EXPECT_EQ("{\n"
+              "    \"state\": \"ONLINE\"\n"
+              "}\n",
+              toString(StatusReport(StatusReport::Params("").internalState("ONLINE"))));
 }
 
-TEST("require that advanced status report is correctly converted to slime")
-{
-    EXPECT_EQUAL(
-            "{\n"
-            "    \"state\": \"REPLAY\",\n"
-            "    \"progress\": 65.5,\n"
-            "    \"configState\": \"OK\",\n"
-            "    \"message\": \"foo\"\n"
-            "}\n",
-            toString(StatusReport(StatusReport::Params("").
-                    internalState("REPLAY").
-                    progress(65.5).
-                    internalConfigState("OK").
-                    message("foo"))));
+TEST(StateReporterUtilsTest, require_that_advanced_status_report_is_correctly_converted_to_slime) {
+    EXPECT_EQ("{\n"
+              "    \"state\": \"REPLAY\",\n"
+              "    \"progress\": 65.5,\n"
+              "    \"configState\": \"OK\",\n"
+              "    \"message\": \"foo\"\n"
+              "}\n",
+              toString(StatusReport(
+                  StatusReport::Params("").internalState("REPLAY").progress(65.5).internalConfigState("OK").message(
+                      "foo"))));
 }
-

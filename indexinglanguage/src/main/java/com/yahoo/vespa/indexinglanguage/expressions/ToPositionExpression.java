@@ -9,29 +9,25 @@ import com.yahoo.document.PositionDataType;
  */
 public final class ToPositionExpression extends Expression {
 
-    public ToPositionExpression() {
-        super(DataType.STRING);
-    }
-
     @Override
-    protected void doExecute(ExecutionContext context) {
-        context.setValue(PositionDataType.fromString(String.valueOf(context.getValue())));
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
+    public DataType setInputType(DataType input, TypeContext context) {
+        super.setInputType(input, DataType.STRING, context);
         return PositionDataType.INSTANCE;
     }
 
     @Override
-    public String toString() {
-        return "to_pos";
+    public DataType setOutputType(DataType output, TypeContext context) {
+        super.setOutputType(PositionDataType.INSTANCE, output, null, context);
+        return DataType.STRING;
     }
+
+    @Override
+    protected void doExecute(ExecutionContext context) {
+        context.setCurrentValue(PositionDataType.fromString(String.valueOf(context.getCurrentValue())));
+    }
+
+    @Override
+    public String toString() { return "to_pos"; }
 
     @Override
     public boolean equals(Object obj) {
@@ -42,5 +38,5 @@ public final class ToPositionExpression extends Expression {
     public int hashCode() {
         return getClass().hashCode();
     }
-}
 
+}

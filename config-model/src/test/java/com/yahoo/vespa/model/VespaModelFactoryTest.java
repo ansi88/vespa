@@ -2,7 +2,13 @@
 package com.yahoo.vespa.model;
 
 import com.yahoo.config.application.api.ApplicationPackage;
+import com.yahoo.component.ComponentId;
+import com.yahoo.component.provider.ComponentRegistry;
+import com.yahoo.config.model.api.CommerceDiscoverySchemaProvider;
+import com.yahoo.config.provision.Zone;
 import com.yahoo.config.model.MockModelContext;
+import com.yahoo.config.model.api.ApplicationClusterEndpoint;
+import com.yahoo.config.model.api.ContainerEndpoint;
 import com.yahoo.config.model.api.HostInfo;
 import com.yahoo.config.model.api.HostProvisioner;
 import com.yahoo.config.model.api.Model;
@@ -12,20 +18,27 @@ import com.yahoo.config.model.api.ServiceInfo;
 import com.yahoo.config.model.api.ValidationParameters;
 import com.yahoo.config.model.deploy.TestProperties;
 import com.yahoo.config.model.test.MockApplicationPackage;
+import com.yahoo.config.provision.AzName;
 import com.yahoo.config.provision.Capacity;
 import com.yahoo.config.provision.ClusterMembership;
 import com.yahoo.config.provision.ClusterSpec;
 import com.yahoo.config.provision.HostSpec;
 import com.yahoo.config.provision.NodeResources;
-import com.yahoo.config.provision.ProvisionLogger;
+import com.yahoo.config.provision.ProvisionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * @author Ulf Lilleengen
@@ -56,7 +69,7 @@ public class VespaModelFactoryTest {
         });
     }
 
-    // Uses a MockApplicationPackage that throws throws UnsupportedOperationException (rethrown as RuntimeException) when validating
+    // Uses a MockApplicationPackage that throws UnsupportedOperationException (rethrown as RuntimeException) when validating
     @Test
     void testThatFactoryModelValidationFails() {
         assertThrows(RuntimeException.class, () -> {
@@ -80,15 +93,6 @@ public class VespaModelFactoryTest {
     void hostedVespaZoneApplicationAllocatesNodesFromNodeRepo() {
         String hostName = "test-host-name";
         String routingClusterName = "routing-cluster";
-
-        String hosts =
-                "<?xml version='1.0' encoding='utf-8' ?>\n" +
-                        "<hosts>\n" +
-                        "  <host name='" + hostName + "'>\n" +
-                        "    <alias>proxy1</alias>\n" +
-                        "  </host>\n" +
-                        "</hosts>";
-
         String services =
                 "<?xml version='1.0' encoding='utf-8' ?>\n" +
                         "<services version='1.0' xmlns:deploy='vespa'>\n" +
@@ -100,25 +104,13 @@ public class VespaModelFactoryTest {
                         "    </container>\n" +
                         "</services>";
 
-        HostProvisioner provisionerToOverride = new HostProvisioner() {
-            @Override
-            public HostSpec allocateHost(String alias) {
-                return new HostSpec(hostName,
-                        NodeResources.unspecified(), NodeResources.unspecified(), NodeResources.unspecified(),
-                        ClusterMembership.from(ClusterSpec.request(ClusterSpec.Type.admin, new ClusterSpec.Id(routingClusterName)).vespaVersion("6.42").build(), 0),
-                        Optional.empty(), Optional.empty(), Optional.empty());
-            }
-
-            @Override
-            public List<HostSpec> prepare(ClusterSpec cluster, Capacity capacity, ProvisionLogger logger) {
-                return List.of(new HostSpec(hostName,
-                        NodeResources.unspecified(), NodeResources.unspecified(), NodeResources.unspecified(),
-                        ClusterMembership.from(ClusterSpec.request(ClusterSpec.Type.container, new ClusterSpec.Id(routingClusterName)).vespaVersion("6.42").build(), 0),
-                        Optional.empty(), Optional.empty(), Optional.empty()));
-            }
-        };
-
-        ModelContext modelContext = createMockModelContext(hosts, services, provisionerToOverride);
+        var host = new HostSpec(hostName,
+                                NodeResources.unspecified(), NodeResources.unspecified(), NodeResources.unspecified(),
+                                ClusterMembership.from(ClusterSpec.request(ClusterSpec.Type.container, new ClusterSpec.Id(routingClusterName)).vespaVersion("6.42").build(), 0, 0),
+                                Optional.empty(), Optional.empty(), Optional.empty(),
+                                AzName.defaultName());
+        var mockProvisioner = new MockProvisioner(List.of(host));
+        ModelContext modelContext = createMockModelContext(null, services, mockProvisioner, routingClusterName);
         Model model = VespaModelFactory.createTestFactory().createModel(modelContext);
 
         List<HostInfo> allocatedHosts = new ArrayList<>(model.getHosts());
@@ -132,7 +124,7 @@ public class VespaModelFactoryTest {
                 "Routing service should run on host " + hostName);
     }
 
-    private ModelContext createMockModelContext(String hosts, String services, HostProvisioner provisionerToOverride) {
+    private ModelContext createMockModelContext(String hosts, String services, HostProvisioner provisionerToOverride, String clusterName) {
         return new MockModelContext() {
             @Override
             public ApplicationPackage applicationPackage() {
@@ -143,14 +135,74 @@ public class VespaModelFactoryTest {
             public HostProvisioner getHostProvisioner() { return provisionerToOverride; }
 
             @Override
-            public Properties properties() {
-                return new TestProperties();
-            }
+            public Properties properties() { return new TestProperties()
+                    .setHostedVespa(true)
+                    .setContainerEndpoints(Set.of(new ContainerEndpoint(clusterName, ApplicationClusterEndpoint.Scope.zone, List.of("tc.example.com")))); }
         };
+    }
+
+    /** Self-hosted has no builder for the element; the error must say Vespa Cloud is required. */
+    @Test
+    void commerceDiscoveryWithoutABuilderFailsWithATailoredMessage() {
+        var services = """
+                <services version="1.0">
+                    <commerce-discovery version="1.0"/>
+                </services>""";
+        Throwable exception = assertThrows(IllegalArgumentException.class, () ->
+                VespaModelFactory.createTestFactory().createModel(new MockModelContext() {
+                    @Override
+                    public ApplicationPackage applicationPackage() {
+                        return new MockApplicationPackage.Builder().withServices(services).build();
+                    }
+                }));
+        assertTrue(exception.getMessage().contains("requires Vespa Cloud"), exception.getMessage());
+    }
+
+    /** Lock in feature flag and hosted as gating for schema providers for now. */
+    @Test
+    void commerceDiscoverySchemaProviderIsConsultedOnlyInHostedVespaWithTheFlagEnabled() {
+        assertFalse(schemaProviderConsulted(false, false));
+        assertFalse(schemaProviderConsulted(true, false));
+        assertFalse(schemaProviderConsulted(false, true));
+        assertTrue(schemaProviderConsulted(true, true));
+    }
+
+    private boolean schemaProviderConsulted(boolean hostedVespa, boolean flagEnabled) {
+        AtomicBoolean consulted = new AtomicBoolean(false);
+        CommerceDiscoverySchemaProvider provider = applicationPackage -> {
+            consulted.set(true);
+            return List.of();
+        };
+        var providers = new ComponentRegistry<CommerceDiscoverySchemaProvider>();
+        providers.register(ComponentId.fromString("test-provider"), provider);
+        var factory = new VespaModelFactory(new ComponentRegistry<>(), new ComponentRegistry<>(),
+                                            new ComponentRegistry<>(), providers, Zone.defaultZone());
+        factory.createModel(new MockModelContext() {
+            @Override
+            public Properties properties() {
+                return new TestProperties().setHostedVespa(hostedVespa).commerceDiscovery(flagEnabled);
+            }
+        });
+        return consulted.get();
     }
 
     ApplicationPackage createApplicationPackageThatFailsWhenValidating() {
         return new MockApplicationPackage.Builder().withEmptyHosts().withEmptyServices().failOnValidateXml().build();
+    }
+
+    static class MockProvisioner implements HostProvisioner {
+
+        private final List<HostSpec> hosts;
+
+        public MockProvisioner(List<HostSpec> hosts) {
+            this.hosts = hosts;
+        }
+
+        @Override
+        public List<HostSpec> prepare(ClusterSpec cluster, Capacity capacity, ProvisionContext context) {
+            return hosts;
+        }
+
     }
 
 }

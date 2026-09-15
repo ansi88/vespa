@@ -5,10 +5,11 @@
 package logfmt
 
 import (
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestShowFlags(t *testing.T) {
@@ -37,7 +38,8 @@ func TestShowFlags(t *testing.T) {
 	check(" +time -fmttime +msecs -usecs +host +level -pid -service +component +message", "+host,-fmttime,-service,pid")
 	check(" +time -fmttime +msecs -usecs +host +level +pid -service +component +message", "+host,-fmttime,-service,+pid")
 	check(" +time -fmttime +msecs -usecs +host +level +pid -service +component +message", "+host,-fmttime", "-service,+pid")
-	check(" -time -fmttime -msecs -usecs -host -level +pid -service -component -message", "+host", "-fmttime", "-service", "pid")
+	check(" +time -fmttime +msecs -usecs +host +level +pid -service +component +message", "+host", "-fmttime", "-service", "pid")
+	check(" -time -fmttime -msecs -usecs +host -level +pid -service +component -message", "host", "component", "pid")
 	check = func(expectErr string, texts ...string) {
 		var target flagValueForShow
 		target.shown = defaultShowFlags()

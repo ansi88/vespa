@@ -1,6 +1,7 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "my_shared_library.h"
+
 #include <vespa/vespalib/util/signalhandler.h>
 
 // This tiny library exists solely as a way to ensure we get visible function names in our backtrace,
@@ -17,6 +18,6 @@ void my_cool_function(vespalib::CountDownLatch& arrival_latch, vespalib::CountDo
     asm(""); // Dear GCC; really, really don't inline this function. It's clobberin' time!
 }
 
-vespalib::string my_totally_tubular_and_groovy_function() {
+std::string my_totally_tubular_and_groovy_function() {
     return vespalib::SignalHandler::get_cross_thread_stack_trace(pthread_self());
 }

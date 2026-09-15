@@ -12,7 +12,9 @@ import com.yahoo.document.WeightedSetDataType;
 import com.yahoo.documentmodel.OwnedTemporaryType;
 import com.yahoo.documentmodel.TemporaryUnknownType;
 import com.yahoo.language.Linguistics;
+import com.yahoo.language.process.Chunker;
 import com.yahoo.language.process.Embedder;
+import com.yahoo.language.process.FieldGenerator;
 import com.yahoo.language.simple.SimpleLinguistics;
 import com.yahoo.schema.Index;
 import com.yahoo.schema.Schema;
@@ -25,6 +27,7 @@ import com.yahoo.vespa.indexinglanguage.expressions.AttributeExpression;
 import com.yahoo.vespa.indexinglanguage.expressions.Expression;
 import com.yahoo.vespa.indexinglanguage.expressions.IndexExpression;
 import com.yahoo.vespa.indexinglanguage.expressions.LowerCaseExpression;
+import com.yahoo.vespa.indexinglanguage.expressions.PackBitsExpression;
 import com.yahoo.vespa.indexinglanguage.expressions.ScriptExpression;
 import com.yahoo.vespa.indexinglanguage.expressions.SummaryExpression;
 import com.yahoo.vespa.indexinglanguage.parser.IndexingInput;
@@ -37,9 +40,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
-
 /**
- * The field class represents a document field. It is used in
+ * The field class represents a schema field. It is used in
  * the Document class to get and set fields. Each SDField has a name, a numeric ID,
  * a data type. The numeric ID is used when the fields are stored
  * in serialized form.
@@ -50,6 +52,9 @@ public class SDField extends Field implements ImmutableSDField {
 
     /** Use this field for modifying index-structure, even if it doesn't have any indexing code */
     private boolean indexStructureField = false;
+
+    /** Whether a synthetic key+value field should be built (with fast search structure) */
+    private boolean fastMapSearch = false;
 
     /** The indexing statements to be applied to this value during indexing */
     private ScriptExpression indexingScript = new ScriptExpression();
@@ -87,12 +92,17 @@ public class SDField extends Field implements ImmutableSDField {
 
     /**
      * The stemming setting of this field, or null to use the default.
-     * Default is determined by the owning search definition.
+     * Default is determined by the owning schema.
      */
     private Stemming stemming = null;
 
     /** How content of this field should be accent normalized etc. */
     private NormalizeLevel normalizing = new NormalizeLevel();
+
+    private String indexLinguisticsProfile;
+    private String searchLinguisticsProfile;
+    private TokensMode indexLinguisticsTokens;
+    private TokensMode searchLinguisticsTokens;
 
     /** Extra query commands of this field */
     private final List<String> queryCommands = new java.util.ArrayList<>(0);
@@ -118,6 +128,9 @@ public class SDField extends Field implements ImmutableSDField {
 
     private boolean wasConfiguredToDoAttributing = false;
     private boolean wasConfiguredToDoIndexing = false;
+
+    /** For internal fields generated synthetically.  */
+    private boolean isInternalField = false;
 
     /**
      * Creates a new field. This method is only used to create reserved fields.
@@ -196,6 +209,14 @@ public class SDField extends Field implements ImmutableSDField {
         return isExtraField;
     }
 
+    public boolean isInternalField() {
+        return isInternalField;
+    }
+
+    public void setInternalField(boolean internalField) {
+        isInternalField = internalField;
+    }
+
     public boolean isDocumentField() { return ! isExtraField; }
 
     @Override
@@ -211,6 +232,14 @@ public class SDField extends Field implements ImmutableSDField {
     @Override
     public boolean doesIndexing() {
         return containsExpression(IndexExpression.class);
+    }
+
+    /** Returns true if (there is strong evidence that) the value stored by this field is bit-packed. */
+    @Override
+    public boolean doesBitPacking() {
+        return getDataType() instanceof TensorDataType tensor &&
+               tensor.getTensorType().valueType() == TensorType.Value.INT8 &&
+               containsExpression(PackBitsExpression.class);
     }
 
     public boolean doesSummarying() {
@@ -293,7 +322,7 @@ public class SDField extends Field implements ImmutableSDField {
                 return;
             }
             if (dataType instanceof CollectionDataType) {
-                dataType = ((CollectionDataType)dataType).getNestedType();
+                dataType = dataType.getNestedType();
             }
             if ((dataType instanceof MapDataType) || (dataType instanceof CollectionDataType)) {
                 // "array of map" or "array of array" will not have any struct fields
@@ -399,12 +428,16 @@ public class SDField extends Field implements ImmutableSDField {
 
     /** Parse an indexing expression which will use the simple linguistics implementation suitable for testing */
     public void parseIndexingScript(String schemaName, String script) {
-        parseIndexingScript(schemaName, script, new SimpleLinguistics(), Embedder.throwsOnUse.asMap());
+        parseIndexingScript(schemaName, script, new SimpleLinguistics(),
+                            Chunker.throwsOnUse.asMap(), Embedder.throwsOnUse.asMap(), FieldGenerator.throwsOnUse.asMap());
     }
 
-    public void parseIndexingScript(String schemaName, String script, Linguistics linguistics, Map<String, Embedder> embedders) {
+    public void parseIndexingScript(String schemaName, String script, Linguistics linguistics,
+                                    Map<String, Chunker> chunkers,
+                                    Map<String, Embedder> embedders,
+                                    Map<String, FieldGenerator> generators) {
         try {
-            ScriptParserContext config = new ScriptParserContext(linguistics, embedders);
+            ScriptParserContext config = new ScriptParserContext(linguistics, chunkers, embedders, generators);
             config.setInputStream(new IndexingInput(script));
             setIndexingScript(schemaName, ScriptExpression.newInstance(config));
         } catch (ParseException e) {
@@ -477,6 +510,16 @@ public class SDField extends Field implements ImmutableSDField {
         this.indexStructureField = indexStructureField;
     }
 
+    /** Returns whether a fast search structure should be built for the synthetic key value field */
+    @Override
+    public boolean hasFastMapSearch() {
+        return fastMapSearch;
+    }
+
+    public void setFastMapSearch(boolean fastMapSearch) {
+        this.fastMapSearch = fastMapSearch;
+    }
+
     @Override
     public boolean hasIndex() {
         return (getIndexingScript() != null) && doesIndexing();
@@ -500,9 +543,7 @@ public class SDField extends Field implements ImmutableSDField {
     @Override
     public int getWeight() { return weight; }
 
-    /**
-     * Returns what kind of matching type should be applied.
-     */
+    /** Returns what kind of matching type should be applied. */
     @Override
     public Matching getMatching() { return matching; }
 
@@ -512,9 +553,7 @@ public class SDField extends Field implements ImmutableSDField {
      */
     public void setMatching(Matching matching) { this.matching=matching; }
 
-    /**
-     * Returns Dictionary settings.
-     */
+    /** Returns Dictionary settings. */
     public Dictionary getDictionary() { return dictionary; }
     public Dictionary getOrSetDictionary() {
         if (dictionary == null) {
@@ -523,9 +562,7 @@ public class SDField extends Field implements ImmutableSDField {
         return dictionary;
     }
 
-    /**
-     * Set the matching type for this field and all subfields.
-     */
+    /** Set the matching type for this field and all subfields. */
     // TODO: When this is not the same as getMatching().setthis we have a potential for inconsistency. Find the right
     //       Matching object for struct fields at lookup time instead.
     public void setMatchingType(MatchType type) {
@@ -535,9 +572,7 @@ public class SDField extends Field implements ImmutableSDField {
         }
     }
 
-    /**
-     * Set the matching type for this field and all subfields.
-     */
+    /** Set the matching type for this field and all subfields. */
     // TODO: When this is not the same as getMatching().setthis we have a potential for inconsistency. Find the right
     //       Matching object for struct fields at lookup time instead.
     public void setMatchingCase(Case casing) {
@@ -546,9 +581,8 @@ public class SDField extends Field implements ImmutableSDField {
             structField.setMatchingCase(casing);
         }
     }
-    /**
-     * Set matching algorithm for this field and all subfields.
-     */
+
+    /** Set matching algorithm for this field and all subfields. */
     // TODO: When this is not the same as getMatching().setthis we have a potential for inconsistency. Find the right
     //       Matching object for struct fields at lookup time instead.
     public void setMatchingAlgorithm(MatchAlgorithm algorithm) {
@@ -585,7 +619,8 @@ public class SDField extends Field implements ImmutableSDField {
     }
 
     /**
-     * Defined indices on this field
+     * Defined indices on this field.
+     *
      * @return defined indices on this
      */
     @Override
@@ -594,7 +629,7 @@ public class SDField extends Field implements ImmutableSDField {
     }
 
     /**
-     * Sets the default rank type of this fields indices, and sets this rank type
+     * Sets the default rank type of these fields indices, and sets this rank type
      * to all indices explicitly defined here which has no index set.
      * (This complex behavior is dues to the fact than we would prefer to have rank types
      * per field, not per index)
@@ -698,9 +733,9 @@ public class SDField extends Field implements ImmutableSDField {
      * @return the summary field, or null if not present and create is false
      */
     public SummaryField getSummaryField(String name, boolean create) {
-        SummaryField summaryField=summaryFields.get(name);
-        if (summaryField==null && create) {
-            summaryField=new SummaryField(name, getDataType());
+        SummaryField summaryField = summaryFields.get(name);
+        if (summaryField == null && create) {
+            summaryField = new SummaryField(name, getDataType(), this);
             addSummaryField(summaryField);
         }
         return summaryFields.get(name);
@@ -739,10 +774,28 @@ public class SDField extends Field implements ImmutableSDField {
     @Override
     public NormalizeLevel getNormalizing() { return normalizing; }
 
-    /**
-     * Change how the content of this field should be accent normalized etc
-     */
+    /** Change how the content of this field should be accent normalized etc. */
     public void setNormalizing(NormalizeLevel level) { normalizing = level; }
+
+    public void setIndexLinguisticsProfile(String profile) { this.indexLinguisticsProfile = profile; }
+
+    @Override
+    public String getIndexLinguisticsProfile() { return indexLinguisticsProfile; }
+
+    public void setSearchLinguisticsProfile(String profile) { this.searchLinguisticsProfile = profile; }
+
+    @Override
+    public String getSearchLinguisticsProfile() { return searchLinguisticsProfile; }
+
+    public void setIndexLinguisticsTokens(TokensMode tokens) { this.indexLinguisticsTokens = tokens; }
+
+    @Override
+    public TokensMode getIndexLinguisticsTokens() { return indexLinguisticsTokens; }
+
+    public void setSearchLinguisticsTokens(TokensMode tokens) { this.searchLinguisticsTokens = tokens; }
+
+    @Override
+    public TokensMode getSearchLinguisticsTokens() { return searchLinguisticsTokens; }
 
     public void addQueryCommand(String name) {
        queryCommands.add(name);

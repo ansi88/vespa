@@ -133,7 +133,6 @@ public class SessionPreparerTest {
                 curator,
                 zone,
                 flagSource,
-                secretStore,
                 OnnxModelCost.disabled(),
                 List.of(new DefaultEndpointCertificateSecretStore(secretStore)));
     }
@@ -357,11 +356,11 @@ public class SessionPreparerTest {
         prepare(new File("src/test/resources/deploy/hosted-app"), params);
 
         SessionZooKeeperClient zkClient = createSessionZooKeeperClient();
-        assertEquals(expected, zkClient.readCloudAccount().get());
+        assertEquals(expected, zkClient.readCloudAccount());
 
         ModelContext modelContext = modelFactory.getModelContext();
-        Optional<CloudAccount> accountFromModel = modelContext.properties().cloudAccount();
-        assertEquals(Optional.of(expected), accountFromModel);
+        CloudAccount accountFromModel = modelContext.properties().getCloudAccount();
+        assertEquals(expected, accountFromModel);
     }
 
     @Test
@@ -406,7 +405,7 @@ public class SessionPreparerTest {
     private FilesApplicationPackage getApplicationPackage(File testFile) throws IOException {
         File appDir = folder.newFolder();
         IOUtils.copyDirectory(testFile, appDir);
-        return FilesApplicationPackage.fromFile(appDir);
+        return FilesApplicationPackage.fromDir(appDir, Map.of());
     }
 
     private DeployHandlerLogger getLogger() {

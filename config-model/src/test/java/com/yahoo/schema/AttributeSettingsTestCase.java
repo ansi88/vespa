@@ -5,6 +5,7 @@ import com.yahoo.document.StructDataType;
 import com.yahoo.schema.derived.AttributeFields;
 import com.yahoo.schema.derived.IndexingScript;
 import com.yahoo.schema.document.Attribute;
+import com.yahoo.schema.document.QuantizationParams;
 import com.yahoo.schema.document.SDField;
 import com.yahoo.schema.parser.ParseException;
 import com.yahoo.tensor.TensorType;
@@ -16,7 +17,11 @@ import java.io.IOException;
 import java.util.Optional;
 
 import static com.yahoo.config.model.test.TestUtil.joinLines;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Attribute settings
@@ -174,7 +179,7 @@ public class AttributeSettingsTestCase extends AbstractSchemaTestCase {
                     "}\n");
             fail();
         } catch (IllegalArgumentException e) {
-            assertEquals("Field 'f' in 'test' can not be marked mutable as it is inside the document clause.", e.getMessage());
+            assertEquals("Field 'f' in 'test' cannot be marked mutable as it is inside the document clause.", e.getMessage());
         }
     }
 
@@ -222,11 +227,11 @@ public class AttributeSettingsTestCase extends AbstractSchemaTestCase {
         assertEquals("a", cfg.attribute().get(0).name());
         assertFalse(cfg.attribute().get(0).ismutable());
 
-        assertEquals("f", cfg.attribute().get(1).name());
-        assertFalse(cfg.attribute().get(1).ismutable());
+        assertEquals("m", cfg.attribute().get(1).name());
+        assertTrue(cfg.attribute().get(1).ismutable());
 
-        assertEquals("m", cfg.attribute().get(2).name());
-        assertTrue(cfg.attribute().get(2).ismutable());
+        assertEquals("f", cfg.attribute().get(2).name());
+        assertFalse(cfg.attribute().get(2).ismutable());
     }
 
     @Test
@@ -238,10 +243,10 @@ public class AttributeSettingsTestCase extends AbstractSchemaTestCase {
         assertEquals("a", cfg.attribute().get(0).name());
         assertEquals(13333, cfg.attribute().get(0).maxuncommittedmemory());
 
-        assertEquals("f", cfg.attribute().get(1).name());
+        assertEquals("m", cfg.attribute().get(1).name());
         assertEquals(13333, cfg.attribute().get(1).maxuncommittedmemory());
 
-        assertEquals("m", cfg.attribute().get(2).name());
+        assertEquals("f", cfg.attribute().get(2).name());
         assertEquals(13333, cfg.attribute().get(2).maxuncommittedmemory());
     }
 
@@ -344,6 +349,51 @@ public class AttributeSettingsTestCase extends AbstractSchemaTestCase {
         // TODO Vespa 9: Remove 'innerproduct' as alias for 'prenormalized-angular'.
         assertDerivedDistanceMetric(AttributesConfig.Attribute.Distancemetric.INNERPRODUCT, "innerproduct");
         assertDerivedDistanceMetric(AttributesConfig.Attribute.Distancemetric.PRENORMALIZED_ANGULAR, "prenormalized-angular");
+    }
+
+    @Test
+    void quantization_can_be_specified_for_document_tensor_fields() throws ParseException {
+        Attribute attr = getAttributeF(
+                """
+                search test {
+                    document test {
+                        field f type tensor<float>(x[128]) {
+                            indexing: attribute
+                            attribute {
+                                quantization {
+                                    bits: 4
+                                }
+                            }
+                        }
+                    }
+                }
+                """);
+        assertEquals(Optional.of(QuantizationParams.ofBits(4)), attr.quantizationParams());
+        // Quantization does not affect the field's configured tensor type
+        assertEquals(Optional.of(TensorType.fromSpec("tensor<float>(x[128])")), attr.tensorType());
+    }
+
+    @Test
+    void quantization_can_be_specified_for_synthetic_tensor_fields() throws ParseException {
+        Attribute attr = getAttributeF(
+                """
+                search test {
+                    document test {
+                        field my_vec type tensor<float>(x[128]) {
+                        }
+                    }
+                    field f type tensor<float>(x[128]) {
+                        indexing: input my_vec | attribute | index
+                        attribute {
+                            quantization {
+                                bits: 2
+                            }
+                        }
+                    }
+                }
+                """);
+        assertEquals(Optional.of(QuantizationParams.ofBits(2)), attr.quantizationParams());
+        assertEquals(Optional.of(TensorType.fromSpec("tensor<float>(x[128])")), attr.tensorType());
     }
 
     private void assertDerivedDistanceMetric(AttributesConfig.Attribute.Distancemetric.Enum expDistanceMetric,

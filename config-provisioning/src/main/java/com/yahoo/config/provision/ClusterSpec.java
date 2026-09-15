@@ -3,6 +3,7 @@ package com.yahoo.config.provision;
 
 import com.yahoo.component.Version;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -17,38 +18,32 @@ public final class ClusterSpec {
     private final Type type;
     private final Id id;
 
-    /** The group id of these hosts, or empty if this represents a request for hosts */
-    private final Optional<Group> groupId;
-
     private final Version vespaVersion;
     private final boolean exclusive;
-    private final Optional<Id> combinedId;
     private final Optional<DockerImage> dockerImageRepo;
     private final ZoneEndpoint zoneEndpoint;
     private final boolean stateful;
+    private final List<SidecarSpec> sidecars;
+    private final List<AzName> availabilityZones;
+    private final String profile;
 
-    private ClusterSpec(Type type, Id id, Optional<Group> groupId, Version vespaVersion, boolean exclusive,
-                        Optional<Id> combinedId, Optional<DockerImage> dockerImageRepo,
-                        ZoneEndpoint zoneEndpoint, boolean stateful) {
+    private ClusterSpec(Type type, Id id, Version vespaVersion, boolean exclusive,
+                        Optional<DockerImage> dockerImageRepo, ZoneEndpoint zoneEndpoint, boolean stateful,
+                        List<SidecarSpec> sidecars, List<AzName> availabilityZones, String profile) {
         this.type = type;
         this.id = id;
-        this.groupId = groupId;
         this.vespaVersion = Objects.requireNonNull(vespaVersion, "vespaVersion cannot be null");
         this.exclusive = exclusive;
-        if (type == Type.combined) {
-            if (combinedId.isEmpty()) throw new IllegalArgumentException("combinedId must be set for cluster of type " + type);
-        } else {
-            if (combinedId.isPresent()) throw new IllegalArgumentException("combinedId must be empty for cluster of type " + type);
-        }
-        this.combinedId = combinedId;
         if (dockerImageRepo.isPresent() && dockerImageRepo.get().tag().isPresent())
             throw new IllegalArgumentException("dockerImageRepo is not allowed to have a tag");
         this.dockerImageRepo = dockerImageRepo;
-        if (type.isContent() && !stateful) {
+        if (type.isContent() && !stateful)
             throw new IllegalArgumentException("Cluster of type " + type + " must be stateful");
-        }
         this.zoneEndpoint = Objects.requireNonNull(zoneEndpoint);
         this.stateful = stateful;
+        this.sidecars = sidecars;
+        this.availabilityZones = availabilityZones.isEmpty() ? List.of(AzName.unspecified()) : availabilityZones;
+        this.profile = profile;
     }
 
     /** Returns the cluster type */
@@ -69,14 +64,6 @@ public final class ClusterSpec {
     /** Returns the version of Vespa that we want this cluster to run */
     public Version vespaVersion() { return vespaVersion; }
 
-    /** Returns the group within the cluster this specifies, or empty to specify the whole cluster */
-    public Optional<Group> group() { return groupId; }
-
-    /** Returns the ID of the container cluster that is combined with this. This is only present for combined clusters */
-    public Optional<Id> combinedId() {
-        return combinedId;
-    }
-
     /**
      * Returns whether the physical hosts running the nodes of this application can
      * also run nodes of other applications. Using exclusive nodes for containers increases security and cost.
@@ -86,20 +73,59 @@ public final class ClusterSpec {
     /** Returns whether this cluster has state */
     public boolean isStateful() { return stateful; }
 
-    public ClusterSpec with(Optional<Group> newGroup) {
-        return new ClusterSpec(type, id, newGroup, vespaVersion, exclusive, combinedId, dockerImageRepo, zoneEndpoint, stateful);
+    /** Returns the sidecars configured for this cluster */
+    public List<SidecarSpec> sidecars() { return sidecars; }
+
+    /**
+     * Returns the availability zones this cluster should run across.
+     * This may contain the single unspecified AzName, but is never empty.
+     */
+    public List<AzName> availabilityZones() { return availabilityZones; }
+
+    /**
+     * Returns a user-specified profile, which maps to hardware, templates, and other specifications depending on the vendor. This member
+     * is not required.
+     */
+    public Optional<String> profile() {
+        return Optional.ofNullable(profile);
     }
 
     public ClusterSpec withExclusivity(boolean exclusive) {
-        return new ClusterSpec(type, id, groupId, vespaVersion, exclusive, combinedId, dockerImageRepo, zoneEndpoint, stateful);
+        return new ClusterSpec(type, id, vespaVersion, exclusive, dockerImageRepo, zoneEndpoint,
+                               stateful, sidecars, availabilityZones, profile);
     }
 
-    /** Creates a ClusterSpec when requesting a cluster */
+    public ClusterSpec withAvailabilityZones(List<AzName> availabilityZones) {
+        return new ClusterSpec(type, id, vespaVersion, exclusive, dockerImageRepo, zoneEndpoint,
+                               stateful, sidecars, availabilityZones, profile);
+    }
+
+    public ClusterSpec withSidecars(List<SidecarSpec> sidecars) {
+        return new ClusterSpec(type, id, vespaVersion, exclusive, dockerImageRepo, zoneEndpoint,
+                               stateful, sidecars, availabilityZones, profile);
+    }
+
+
+    /** Creates a ClusterSpec builder for when requesting a cluster having all the values of this */
+    public Builder asRequest() {
+        Builder b = new Builder(type, id);
+        b.vespaVersion(vespaVersion);
+        b.exclusive(exclusive);
+        b.dockerImageRepository(dockerImageRepo);
+        b.loadBalancerSettings(zoneEndpoint);
+        b.stateful(stateful);
+        b.sidecars(sidecars);
+        b.availabilityZones(availabilityZones);
+        b.profile(profile);
+        return b;
+    }
+
+    /** Creates a ClusterSpec builder for when requesting a cluster */
     public static Builder request(Type type, Id id) {
         return new Builder(type, id);
     }
 
-    /** Creates a ClusterSpec for an existing cluster, group id and Vespa version needs to be set */
+    /** Creates a ClusterSpec builder for an existing cluster, group id and Vespa version needs to be set */
     public static Builder specification(Type type, Id id) {
         return new Builder(type, id);
     }
@@ -109,14 +135,14 @@ public final class ClusterSpec {
         private final Type type;
         private final Id id;
 
-        private Optional<Group> groupId = Optional.empty();
         private Optional<DockerImage> dockerImageRepo = Optional.empty();
         private Version vespaVersion;
         private boolean exclusive = false;
-        private boolean provisionForApplication = false;
-        private Optional<Id> combinedId = Optional.empty();
         private ZoneEndpoint zoneEndpoint = ZoneEndpoint.defaultEndpoint;
         private boolean stateful;
+        private List<SidecarSpec> sidecars = List.of();
+        private List<AzName> availabilityZones = List.of();
+        private String profile;
 
         private Builder(Type type, Id id) {
             this.type = type;
@@ -125,12 +151,8 @@ public final class ClusterSpec {
         }
 
         public ClusterSpec build() {
-            return new ClusterSpec(type, id, groupId, vespaVersion, exclusive, combinedId, dockerImageRepo, zoneEndpoint, stateful);
-        }
-
-        public Builder group(Group groupId) {
-            this.groupId = Optional.ofNullable(groupId);
-            return this;
+            return new ClusterSpec(type, id, vespaVersion, exclusive, dockerImageRepo, zoneEndpoint,
+                                   stateful, sidecars, availabilityZones, profile);
         }
 
         public Builder vespaVersion(Version vespaVersion) {
@@ -148,16 +170,6 @@ public final class ClusterSpec {
             return this;
         }
 
-        public Builder provisionForApplication(boolean provisionForApplication) {
-            this.provisionForApplication = provisionForApplication;
-            return this;
-        }
-
-        public Builder combinedId(Optional<Id> combinedId) {
-            this.combinedId = combinedId;
-            return this;
-        }
-
         public Builder dockerImageRepository(Optional<DockerImage> dockerImageRepo) {
             this.dockerImageRepo = dockerImageRepo;
             return this;
@@ -172,12 +184,27 @@ public final class ClusterSpec {
             this.stateful = stateful;
             return this;
         }
+        
+        public Builder sidecars(List<SidecarSpec> sidecars) {
+            this.sidecars = sidecars;
+            return this;
+        }
+
+        public Builder availabilityZones(List<AzName> availabilityZones) {
+            this.availabilityZones = availabilityZones;
+            return this;
+        }
+
+        public Builder profile(String profile) {
+            this.profile = profile;
+            return this;
+        }
 
     }
 
     @Override
     public String toString() {
-        return type + " " + id + " " + groupId.map(group -> group + " ").orElse("") + vespaVersion + (dockerImageRepo.map(repo -> " " + repo).orElse(""));
+        return type + " " + id;
     }
 
     @Override
@@ -189,16 +216,18 @@ public final class ClusterSpec {
                stateful == that.stateful &&
                type == that.type &&
                id.equals(that.id) &&
-               groupId.equals(that.groupId) &&
                vespaVersion.equals(that.vespaVersion) &&
-               combinedId.equals(that.combinedId) &&
                dockerImageRepo.equals(that.dockerImageRepo) &&
-               zoneEndpoint.equals(that.zoneEndpoint);
+               zoneEndpoint.equals(that.zoneEndpoint) &&
+               sidecars.equals(that.sidecars) &&
+               availabilityZones.equals(that.availabilityZones) &&
+               Objects.equals(profile, that.profile);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(type, id, groupId, vespaVersion, exclusive, combinedId, dockerImageRepo, zoneEndpoint, stateful);
+        return Objects.hash(type, id, vespaVersion, exclusive, dockerImageRepo, zoneEndpoint,
+                            stateful, sidecars, availabilityZones, profile);
     }
 
     /**
@@ -207,8 +236,6 @@ public final class ClusterSpec {
      */
     public boolean satisfies(ClusterSpec other) {
         if ( ! other.id.equals(this.id)) return false; // ID mismatch
-        if (other.type.isContent() || this.type.isContent()) // Allow seamless transition between content and combined
-            return other.type.isContent() == this.type.isContent();
         return other.type.equals(this.type);
     }
 
@@ -218,17 +245,16 @@ public final class ClusterSpec {
         // These enum names are written to ZooKeeper - do not change
         admin,
         container,
-        content,
-        combined;
+        content;
 
         /** Returns whether this runs a content cluster */
         public boolean isContent() {
-            return this == content || this == combined;
+            return this == content;
         }
 
         /** Returns whether this runs a container cluster */
         public boolean isContainer() {
-            return this == container || this == combined;
+            return this == container;
         }
 
         public static Type from(String typeName) {
@@ -236,7 +262,6 @@ public final class ClusterSpec {
                 case "admin" -> admin;
                 case "container" -> container;
                 case "content" -> content;
-                case "combined" -> combined;
                 default -> throw new IllegalArgumentException("Illegal cluster type '" + typeName + "'");
             };
         }

@@ -737,7 +737,7 @@ public class ContentBuilderTest extends DomBuilderTest {
                                                                               .endpoints(Set.of(new ContainerEndpoint("search.indexing", ApplicationClusterEndpoint.Scope.zone, List.of("default.example.com"))));
             VespaModel model = new VespaModelCreatorWithMockPkg(new MockApplicationPackage.Builder()
                     .withServices(hostedXml)
-                    .withSearchDefinition(MockApplicationPackage.MUSIC_SCHEMA)
+                    .withSchema(MockApplicationPackage.MUSIC_SCHEMA)
                     .build())
                     .create(deployStateBuilder);
             ProtonConfig config = getProtonConfig(model.getContentClusters().values().iterator().next());
@@ -764,32 +764,10 @@ public class ContentBuilderTest extends DomBuilderTest {
         var deployStateBuilder = new DeployState.Builder().properties(props);
         var model = new VespaModelCreatorWithMockPkg(new MockApplicationPackage.Builder()
                 .withServices(hostedXml)
-                .withSearchDefinition(MockApplicationPackage.MUSIC_SCHEMA)
+                .withSchema(MockApplicationPackage.MUSIC_SCHEMA)
                 .build())
                 .create(deployStateBuilder);
         return getProtonConfig(model.getContentClusters().values().iterator().next());
-    }
-
-    private void verifyFeedSequencer(String input, String expected) {
-        verifyFeedSequencer(input, expected, 0);
-    }
-
-    private void verifyFeedSequencer(String input, String expected, double visibilityDelay) {
-        String hostedXml = xmlWithVisibilityDelay(visibilityDelay);
-        var config = resolveProtonConfig(new TestProperties().setFeedSequencerType(input), hostedXml);
-        assertEquals(expected, config.indexing().optimize().toString());
-    }
-
-    @Test
-    void ensureFeedSequencerIsControlledByFlag() {
-        verifyFeedSequencer("LATENCY", "LATENCY");
-        verifyFeedSequencer("ADAPTIVE", "ADAPTIVE");
-        verifyFeedSequencer("THROUGHPUT", "THROUGHPUT", 0);
-        verifyFeedSequencer("THROUGHPUT", "THROUGHPUT", 0.1);
-
-        verifyFeedSequencer("THOUGHPUT", "LATENCY");
-        verifyFeedSequencer("adaptive", "LATENCY");
-
     }
 
     private void verifyThatFeatureFlagControlsVisibilityDelayDefault(Double xmlOverride, double expected) {
@@ -834,7 +812,7 @@ public class ContentBuilderTest extends DomBuilderTest {
         return new MockApplicationPackage.Builder()
                 .withHosts(hosts)
                 .withServices(services)
-                .withSearchDefinition(MockApplicationPackage.MUSIC_SCHEMA)
+                .withSchema(MockApplicationPackage.MUSIC_SCHEMA)
                 .build();
     }
 
@@ -855,7 +833,7 @@ public class ContentBuilderTest extends DomBuilderTest {
         VespaModel m = new VespaModelCreatorWithMockPkg(new MockApplicationPackage.Builder()
                 .withHosts(getHosts())
                 .withServices(combined)
-                .withSearchDefinition(MockApplicationPackage.MUSIC_SCHEMA)
+                .withSchema(MockApplicationPackage.MUSIC_SCHEMA)
                 .build())
                 .create(deployStateBuilder);
 

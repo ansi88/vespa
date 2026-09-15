@@ -5,10 +5,11 @@ import com.yahoo.document.DataType;
 import com.yahoo.document.Field;
 import com.yahoo.vespa.objects.FieldBase;
 
-import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -21,36 +22,10 @@ import static com.yahoo.text.Lowercase.toLowerCase;
  */
 public class SummaryField extends FieldBase implements Cloneable {
 
-    /** A source (field name). */
-    public static class Source implements Serializable {
+    /** The SDField or DocumentSummary owning this */
+    private Object owner;
 
-        private final String name;
-        private boolean override = false;
-        public Source(String name) {
-            this.name = name;
-        }
-        public String getName() { return name; }
-        public void setOverride(boolean override) { this.override = override; }
-        public boolean getOverride() { return override; }
-
-        @Override
-        public int hashCode() {
-            return name.hashCode() + Boolean.valueOf(override).hashCode();
-        }
-
-        @Override
-        public boolean equals(Object obj) {
-            if (!(obj instanceof Source other)) return false;
-            return name.equals(other.name) && override == other.override;
-        }
-
-        @Override
-        public String toString() {
-            return "source field '" + name + "'";
-        }
-
-    }
-
+    private SummaryElementsSelector elementsSelector = SummaryElementsSelector.selectAll();
     /** The transform to perform on the stored source */
     private SummaryTransform transform;
 
@@ -68,38 +43,44 @@ public class SummaryField extends FieldBase implements Cloneable {
 
     private Set<String> destinations  = new java.util.LinkedHashSet<>();
 
+    /**
+     * The names of the struct sub-fields to include in the output, when the source field is an array of
+     * struct, or a map. For a map the sub-fields are "key" and "value", where a value of struct type has
+     * its own sub-fields named "value.&lt;name&gt;". An empty list means all sub-fields are included.
+     */
+    private List<String> structFields = new ArrayList<>();
+
     /** True if this field was defined implicitly */
     private boolean implicit = false;
     private boolean unresolvedType = false;
 
     /** Creates a summary field with NONE as transform */
-    public SummaryField(String name, DataType type) {
-        this(name, type, SummaryTransform.NONE);
+    public SummaryField(String name, DataType type, Object owner) {
+        this(name, type, SummaryTransform.NONE, owner);
     }
 
     /** Creates a summary field with NONE as transform */
-    public SummaryField(Field field) {
-        this(field, SummaryTransform.NONE);
+    public SummaryField(Field field, Object owner) {
+        this(field, SummaryTransform.NONE, owner);
     }
 
 
-    public SummaryField(Field field, SummaryTransform transform) {
-        this(field.getName(), field.getDataType(), transform);
+    public SummaryField(Field field, SummaryTransform transform, Object owner) {
+        this(field.getName(), field.getDataType(), transform, owner);
     }
 
-    public SummaryField(String name, DataType type, SummaryTransform transform) {
+    public SummaryField(String name, DataType type, SummaryTransform transform, Object owner) {
         super(name);
+        this.owner = owner;
         this.transform=transform;
         this.dataType = type;
     }
 
-    public static SummaryField createWithUnresolvedType(String name) {
-        /*
-         * Data type is not available during conversion of
-         * parsed schema to schema. Use a placeholder data type and tag the summary
-         * field as having an unresolved type.
-         */
-        var summaryField = new SummaryField(name, DataType.NONE);
+    public static SummaryField createWithUnresolvedType(String name, DocumentSummary owner) {
+        // Data type is not available during conversion of
+        // parsed schema to schema. Use a placeholder data type and tag the summary
+        // field as having an unresolved type.
+        var summaryField = new SummaryField(name, DataType.NONE, owner);
         summaryField.unresolvedType = true;
         return summaryField;
     }
@@ -113,6 +94,14 @@ public class SummaryField extends FieldBase implements Cloneable {
 
     public DataType getDataType() {
         return dataType;
+    }
+
+    public void setElementsSelector(SummaryElementsSelector selector) {
+        elementsSelector = selector;
+    }
+
+    public SummaryElementsSelector getElementsSelector() {
+        return elementsSelector;
     }
 
     public void setTransform(SummaryTransform transform) {
@@ -175,6 +164,20 @@ public class SummaryField extends FieldBase implements Cloneable {
         return destinations;
     }
 
+    public void addStructField(String name) {
+        if (!structFields.contains(name)) {
+            structFields.add(name);
+        }
+    }
+
+    /**
+     * Returns the names of the struct sub-fields to include in the output.
+     * An empty list means all sub-fields are included.
+     */
+    public List<String> getStructFields() {
+        return List.copyOf(structFields);
+    }
+
     public String toString(Collection<?> collection) {
         StringBuilder buffer=new StringBuilder();
         for (Iterator<?> i=collection.iterator(); i.hasNext(); ) {
@@ -190,7 +193,7 @@ public class SummaryField extends FieldBase implements Cloneable {
      * into this field
      *
      * @param  merge the field to merge with this, if null, the merged field is *this* field
-     * @throws RuntimeException if the two fields can not be merged
+     * @throws RuntimeException if the two fields cannot be merged
      */
     public SummaryField mergeWith(SummaryField merge) {
         if (merge == null) return this;
@@ -248,18 +251,14 @@ public class SummaryField extends FieldBase implements Cloneable {
         return true;
     }
 
-    private String getDestinationString() {
-        return destinations.stream().map(destination -> "document-summary '" + destination + "'").collect(Collectors.joining(", "));
-    }
-
     @Override
     public String toString() {
         return "summary field '" + getName() + "'";
     }
 
-    /** Returns a string which aids locating this field in the source search definition */
+    /** Returns a string which aids locating this field in the source schema */
     public String toLocateString() {
-        return "summary " + getName() + " type " + toLowerCase(dataType.getName()) + " in " + getDestinationString();
+        return "summary '" + getName() + "' in " + owner;
     }
 
     @Override
@@ -270,6 +269,8 @@ public class SummaryField extends FieldBase implements Cloneable {
                 clone.sources = new LinkedHashSet<>(this.sources);
             if (this.destinations != null)
                 clone.destinations = new LinkedHashSet<>(destinations);
+            if (this.structFields != null)
+                clone.structFields = new ArrayList<>(structFields);
             clone.unresolvedType = unresolvedType;
             return clone;
         }
@@ -330,6 +331,36 @@ public class SummaryField extends FieldBase implements Cloneable {
         public String toString() {
             return cmd;
         }
+    }
+
+    /** A source (field name). */
+    public static class Source {
+
+        private final String name;
+        private boolean override = false;
+        public Source(String name) {
+            this.name = name;
+        }
+        public String getName() { return name; }
+        public void setOverride(boolean override) { this.override = override; }
+        public boolean getOverride() { return override; }
+
+        @Override
+        public int hashCode() {
+            return name.hashCode() + Boolean.valueOf(override).hashCode();
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (!(obj instanceof Source other)) return false;
+            return name.equals(other.name) && override == other.override;
+        }
+
+        @Override
+        public String toString() {
+            return "source field '" + name + "'";
+        }
+
     }
 
 }

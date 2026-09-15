@@ -2,15 +2,19 @@
 #pragma once
 
 #include "capability.h"
-#include <vespa/vespalib/stllike/string.h>
+
 #include <vespa/vespalib/stllike/hash_set.h>
+
 #include <bitset>
 #include <initializer_list>
 #include <iosfwd>
 #include <optional>
+#include <string>
 #include <vector>
 
-namespace vespalib { class asciistream; }
+namespace vespalib {
+class asciistream;
+}
 
 namespace vespalib::net::tls {
 
@@ -26,37 +30,28 @@ class CapabilitySet {
     using BitSet = std::bitset<Capability::max_value_count()>;
     BitSet _capability_mask;
 
-    constexpr static uint32_t cap_as_bit_pos(const Capability& cap) noexcept {
-        return cap.id_as_idx();
-    }
+    constexpr static uint32_t cap_as_bit_pos(const Capability& cap) noexcept { return cap.id_as_idx(); }
 
     constexpr static BitSet cap_as_bit_set(const Capability& cap) noexcept {
         static_assert(Capability::max_value_count() <= 32); // Must fit into uint32_t bitmask
         return {uint32_t(1) << cap_as_bit_pos(cap)};
     }
 
-    explicit constexpr CapabilitySet(BitSet capabilities) noexcept
-        : _capability_mask(capabilities)
-    {}
+    explicit constexpr CapabilitySet(BitSet capabilities) noexcept : _capability_mask(capabilities) {}
+
 public:
     constexpr CapabilitySet() noexcept = default;
     constexpr ~CapabilitySet() = default;
 
-    [[nodiscard]] string to_string() const;
+    [[nodiscard]] std::string to_string() const;
 
     [[nodiscard]] bool operator==(const CapabilitySet& rhs) const noexcept {
         return (_capability_mask == rhs._capability_mask);
     }
 
-    [[nodiscard]] bool empty() const noexcept {
-        return _capability_mask.none();
-    }
-    [[nodiscard]] size_t count() const noexcept {
-        return _capability_mask.count();
-    }
-    [[nodiscard]] constexpr static size_t max_count() noexcept {
-        return Capability::max_value_count();
-    }
+    [[nodiscard]] bool empty() const noexcept { return _capability_mask.none(); }
+    [[nodiscard]] size_t count() const noexcept { return _capability_mask.count(); }
+    [[nodiscard]] constexpr static size_t max_count() noexcept { return Capability::max_value_count(); }
 
     [[nodiscard]] constexpr bool contains(Capability cap) const noexcept {
         return _capability_mask[cap_as_bit_pos(cap)];
@@ -65,12 +60,8 @@ public:
         return ((_capability_mask & caps._capability_mask) == caps._capability_mask);
     }
 
-    void add(const Capability& cap) noexcept {
-        _capability_mask |= cap_as_bit_set(cap);
-    }
-    void add_all(const CapabilitySet& cap_set) noexcept {
-        _capability_mask |= cap_set._capability_mask;
-    }
+    void add(const Capability& cap) noexcept { _capability_mask |= cap_as_bit_set(cap); }
+    void add_all(const CapabilitySet& cap_set) noexcept { _capability_mask |= cap_set._capability_mask; }
 
     [[nodiscard]] CapabilitySet union_of(const CapabilitySet& cap_set) const noexcept {
         return CapabilitySet(_capability_mask | cap_set._capability_mask);
@@ -93,9 +84,9 @@ public:
      *      capability to our own working set. Return true.
      *   3. Otherwise, return false.
      */
-    [[nodiscard]] bool resolve_and_add(const string& set_or_cap_name) noexcept;
+    [[nodiscard]] bool resolve_and_add(const std::string& set_or_cap_name) noexcept;
 
-    [[nodiscard]] static std::optional<CapabilitySet> find_capability_set(const string& cap_set_name) noexcept;
+    [[nodiscard]] static std::optional<CapabilitySet> find_capability_set(const std::string& cap_set_name) noexcept;
 
     [[nodiscard]] static CapabilitySet of(std::initializer_list<Capability> caps) noexcept {
         CapabilitySet set;
@@ -122,4 +113,4 @@ public:
 std::ostream& operator<<(std::ostream&, const CapabilitySet& cap_set);
 asciistream& operator<<(asciistream&, const CapabilitySet& cap_set);
 
-}
+} // namespace vespalib::net::tls

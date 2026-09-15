@@ -12,7 +12,7 @@ import java.util.Arrays;
  *
  * @author Simon Thoresen Hult
  */
-public class RawData implements Cloneable, Comparable<RawData> {
+public final class RawData implements Cloneable, Comparable<RawData> {
 
     private byte[] data;
 
@@ -68,7 +68,7 @@ public class RawData implements Cloneable, Comparable<RawData> {
      */
     public RawData setData(byte[] data) {
         if (data == null) {
-            throw new IllegalArgumentException("Data can not be null.");
+            throw new IllegalArgumentException("Data cannot be null.");
         }
         this.data = data;
         return this;
@@ -81,14 +81,10 @@ public class RawData implements Cloneable, Comparable<RawData> {
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof RawData)) {
+        if (!(obj instanceof RawData rhs)) {
             return false;
         }
-        RawData rhs = (RawData)obj;
-        if (!Arrays.equals(data, rhs.data)) {
-            return false;
-        }
-        return true;
+        return Arrays.equals(data, rhs.data);
     }
 
     @Override

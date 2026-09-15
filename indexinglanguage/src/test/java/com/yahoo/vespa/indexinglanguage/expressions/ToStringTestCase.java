@@ -9,8 +9,9 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
-import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Simon Thoresen Hult
@@ -27,18 +28,16 @@ public class ToStringTestCase {
 
     @Test
     public void requireThatExpressionCanBeVerified() {
-        Expression exp = new ToStringExpression();
-        assertVerify(DataType.INT, exp, DataType.STRING);
-        assertVerify(DataType.STRING, exp, DataType.STRING);
-        assertVerifyThrows(null, exp, "Expected any input, but no input is specified");
+        assertVerify(DataType.INT, new ToStringExpression(), DataType.STRING);
+        assertVerify(DataType.STRING, new ToStringExpression(), DataType.STRING);
     }
 
     @Test
     public void requireThatValueIsConverted() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new IntegerFieldValue(69)).execute(new ToStringExpression());
+        ctx.setCurrentValue(new IntegerFieldValue(69)).execute(new ToStringExpression());
 
-        FieldValue val = ctx.getValue();
+        FieldValue val = ctx.getCurrentValue();
         assertTrue(val instanceof StringFieldValue);
         assertEquals("69", ((StringFieldValue)val).getString());
     }

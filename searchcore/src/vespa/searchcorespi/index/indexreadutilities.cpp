@@ -1,9 +1,12 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "indexreadutilities.h"
+
 #include "indexdisklayout.h"
+
 #include <vespa/fastlib/io/bufferedfile.h>
 #include <vespa/vespalib/data/fileheader.h>
+
 #include <filesystem>
 #include <set>
 #include <vector>
@@ -21,15 +24,11 @@ namespace {
 /**
  * Assumes that cleanup has removed all obsolete index dirs.
  **/
-void
-scanForIndexes(const vespalib::string &baseDir,
-               std::vector<vespalib::string> &flushDirs,
-               vespalib::string &fusionDir)
-{
+void scanForIndexes(const std::string& baseDir, std::vector<std::string>& flushDirs, std::string& fusionDir) {
     std::filesystem::directory_iterator dir_scan{std::filesystem::path(baseDir)};
     for (auto& entry : dir_scan) {
         if (entry.is_directory()) {
-            vespalib::string name = entry.path().filename().string();
+            std::string name = entry.path().filename().string();
             if (name.find(IndexDiskLayout::FlushDirPrefix) == 0) {
                 flushDirs.push_back(name);
             }
@@ -44,13 +43,11 @@ scanForIndexes(const vespalib::string &baseDir,
     }
 }
 
-}
+} // namespace
 
-FusionSpec
-IndexReadUtilities::readFusionSpec(const vespalib::string &baseDir)
-{
-    std::vector<vespalib::string> flushDirs;
-    vespalib::string fusionDir;
+FusionSpec IndexReadUtilities::readFusionSpec(const std::string& baseDir) {
+    std::vector<std::string> flushDirs;
+    std::string              fusionDir;
     scanForIndexes(baseDir, flushDirs, fusionDir);
 
     uint32_t fusionId = 0;
@@ -58,7 +55,7 @@ IndexReadUtilities::readFusionSpec(const vespalib::string &baseDir)
         fusionId = atoi(fusionDir.substr(IndexDiskLayout::FusionDirPrefix.size()).c_str());
     }
     std::set<uint32_t> flushIds;
-    for (const auto & flushDir : flushDirs) {
+    for (const auto& flushDir : flushDirs) {
         uint32_t id = atoi(flushDir.substr(IndexDiskLayout::FlushDirPrefix.size()).c_str());
         flushIds.insert(id);
     }
@@ -69,10 +66,8 @@ IndexReadUtilities::readFusionSpec(const vespalib::string &baseDir)
     return fusionSpec;
 }
 
-SerialNum
-IndexReadUtilities::readSerialNum(const vespalib::string &dir)
-{
-    const vespalib::string fileName = IndexDiskLayout::getSerialNumFileName(dir);
+SerialNum IndexReadUtilities::readSerialNum(const std::string& dir) {
+    const std::string fileName = IndexDiskLayout::getSerialNumFileName(dir);
     Fast_BufferedFile file(16_Ki);
     file.ReadOpen(fileName.c_str());
 
@@ -84,4 +79,4 @@ IndexReadUtilities::readSerialNum(const vespalib::string &dir)
     return 0;
 }
 
-}
+} // namespace searchcorespi::index

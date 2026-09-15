@@ -37,7 +37,7 @@ import java.util.Set;
  * A search-time document attribute (per-document in-memory value).
  * This belongs to the field defining the attribute.
  *
- * @author  bratseth
+ * @author bratseth
  */
 public final class Attribute implements Cloneable, Serializable {
 
@@ -74,6 +74,8 @@ public final class Attribute implements Cloneable, Serializable {
 
     private Optional<HnswIndexParams> hnswIndexParams = Optional.empty();
 
+    private Optional<QuantizationParams> quantizationParams = Optional.empty();
+
     private boolean isPosition = false;
     private final Sorting sorting = new Sorting();
 
@@ -109,7 +111,7 @@ public final class Attribute implements Cloneable, Serializable {
         private final String exportAttributeTypeName;
 
         Type(String name, String exportAttributeTypeName) {
-            this.myName=name;
+            this.myName = name;
             this.exportAttributeTypeName = exportAttributeTypeName;
         }
 
@@ -174,22 +176,16 @@ public final class Attribute implements Cloneable, Serializable {
     }
 
     /**
-     * <p>Returns whether this attribute should be included in the "attributeprefetch" summary
+     * Returns whether this attribute should be included in the "attributeprefetch" summary
      * which is returned to the Qrs by prefetchAttributes, used by blending, uniquing etc.
      *
-     * <p>Single value attributes are prefetched by default if summary is true.
-     * Multi value attributes are not.</p>
+     * Single value attributes are prefetched by default if summary is true.
+     * Multi value attributes are not.
      */
     public boolean isPrefetch() {
-        if (prefetch!=null) return prefetch;
-
-        if (tensorType.isPresent()) {
-            return false;
-        }
-        if (CollectionType.SINGLE.equals(collectionType)) {
-            return true;
-        }
-
+        if (prefetch != null) return prefetch;
+        if (tensorType.isPresent()) return false;
+        if (CollectionType.SINGLE.equals(collectionType)) return true;
         return false;
     }
 
@@ -205,6 +201,7 @@ public final class Attribute implements Cloneable, Serializable {
     public boolean isPaged()                { return paged; }
     public boolean isPosition()             { return isPosition; }
     public boolean isMutable()              { return mutable; }
+    public boolean isQuantized()            { return quantizationParams.isPresent(); }
 
     public int arity()       { return arity; }
     public long lowerBound() { return lowerBound; }
@@ -218,6 +215,7 @@ public final class Attribute implements Cloneable, Serializable {
         return distanceMetric.orElse(DEFAULT_DISTANCE_METRIC);
     }
     public Optional<HnswIndexParams> hnswIndexParams() { return hnswIndexParams; }
+    public Optional<QuantizationParams> quantizationParams() { return quantizationParams; }
 
     public Sorting getSorting() { return sorting; }
     public Dictionary getDictionary() { return dictionary; }
@@ -234,8 +232,8 @@ public final class Attribute implements Cloneable, Serializable {
     public void setEnableOnlyBitVector(boolean enableOnlyBitVector) { this.enableOnlyBitVector = enableOnlyBitVector; }
     public void setFastRank(boolean value) {
         Supplier<IllegalArgumentException> badGen = () ->
-                new IllegalArgumentException("The " + toString() + " does not support 'fast-rank'. " +
-                        "Only supported for tensor types with at least one mapped dimension");
+                new IllegalArgumentException(this + " does not support 'fast-rank'. " +
+                                             "Only supported for tensor types with at least one mapped dimension");
         var tt = tensorType.orElseThrow(badGen);
         for (var dim : tt.dimensions()) {
             if (dim.isMapped()) {
@@ -259,6 +257,7 @@ public final class Attribute implements Cloneable, Serializable {
     public void setHnswIndexParams(HnswIndexParams params)       { this.hnswIndexParams = Optional.of(params); }
     public void setDictionary(Dictionary dictionary)             { this.dictionary = dictionary; }
     public void setCase(Case casing)                             { this.casing = casing; }
+    public void setQuantizationParams(QuantizationParams params) { this.quantizationParams = Optional.of(params); }
 
     public String         getName()                     { return name; }
     public Type           getType()                     { return type; }
@@ -270,7 +269,7 @@ public final class Attribute implements Cloneable, Serializable {
 
     private static void failDataType(String schemaName, String fieldName, String dataType) throws IllegalArgumentException {
         throw new IllegalArgumentException("For schema '" + schemaName + "': Field '" + fieldName + "' of type '" + dataType + "' cannot be an attribute. " +
-                "Instead specify the struct fields to be searchable as attribute");
+                                           "Instead specify the struct fields to be searchable as attribute");
     }
     public static void validateDataType(String schemaName, String fieldName, DataType fieldType) throws IllegalArgumentException {
         if (fieldType instanceof MapDataType mapType) {
@@ -394,7 +393,7 @@ public final class Attribute implements Cloneable, Serializable {
         return Objects.hash(
                 name, type, collectionType, sorting, dictionary, isPrefetch(), fastAccess, removeIfZero,
                 createIfNonExistent, isPosition, mutable, paged, enableOnlyBitVector,
-                tensorType, referenceDocumentType, distanceMetric, hnswIndexParams);
+                tensorType, referenceDocumentType, distanceMetric, hnswIndexParams, quantizationParams);
     }
 
     @Override
@@ -422,6 +421,7 @@ public final class Attribute implements Cloneable, Serializable {
         if (! Objects.equals(referenceDocumentType, other.referenceDocumentType)) return false;
         if (! Objects.equals(distanceMetric, other.distanceMetric)) return false;
         if (! Objects.equals(hnswIndexParams, other.hnswIndexParams)) return false;
+        if (! Objects.equals(quantizationParams, other.quantizationParams)) return false;
 
         return true;
     }

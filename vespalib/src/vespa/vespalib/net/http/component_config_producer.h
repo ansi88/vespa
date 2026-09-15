@@ -2,26 +2,25 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib {
 
 struct ComponentConfigProducer {
     struct Config {
-        vespalib::string name;
-        size_t gen;
-        vespalib::string msg;
-        Config(const vespalib::string &n, size_t g) : name(n), gen(g), msg() {}
-        Config(const vespalib::string &n, size_t g, const vespalib::string &m)
-            : name(n), gen(g), msg(m) {}
+        std::string name;
+        size_t      gen;
+        std::string msg;
+        Config(const std::string& n, size_t g) : name(n), gen(g), msg() {}
+        Config(const std::string& n, size_t g, const std::string& m) : name(n), gen(g), msg(m) {}
         ~Config();
     };
     struct Consumer {
-        virtual void add(const Config &config) = 0;
-        virtual ~Consumer() {}
+        virtual void add(const Config& config) = 0;
+        virtual ~Consumer() = default;
     };
-    virtual void getComponentConfig(Consumer &consumer) = 0;
-    virtual ~ComponentConfigProducer() {}
+    virtual void getComponentConfig(Consumer& consumer) = 0;
+    virtual ~ComponentConfigProducer() = default;
 };
 
 } // namespace vespalib

@@ -1,32 +1,53 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.vespa.indexinglanguage;
 
+import ai.vespa.language.chunker.FixedLengthChunker;
+import ai.vespa.language.chunker.SentenceChunker;
 import com.yahoo.document.ArrayDataType;
 import com.yahoo.document.DataType;
 import com.yahoo.document.Document;
 import com.yahoo.document.DocumentType;
+import com.yahoo.document.DocumentUpdate;
 import com.yahoo.document.Field;
-import com.yahoo.document.TensorDataType;
+import com.yahoo.document.MapDataType;
+import com.yahoo.document.StructDataType;
+import com.yahoo.document.WeightedSetDataType;
 import com.yahoo.document.datatypes.Array;
 import com.yahoo.document.datatypes.BoolFieldValue;
+import com.yahoo.document.datatypes.ByteFieldValue;
+import com.yahoo.document.datatypes.FloatFieldValue;
 import com.yahoo.document.datatypes.IntegerFieldValue;
+import com.yahoo.document.datatypes.LongFieldValue;
+import com.yahoo.document.datatypes.MapFieldValue;
 import com.yahoo.document.datatypes.StringFieldValue;
-import com.yahoo.document.datatypes.TensorFieldValue;
-import com.yahoo.language.process.Embedder;
-import com.yahoo.language.simple.SimpleLinguistics;
-import com.yahoo.tensor.Tensor;
-import com.yahoo.tensor.TensorType;
-import com.yahoo.vespa.indexinglanguage.expressions.*;
+import com.yahoo.document.datatypes.Struct;
+import com.yahoo.document.datatypes.UriFieldValue;
+import com.yahoo.document.datatypes.WeightedSet;
+import com.yahoo.document.update.AssignValueUpdate;
+import com.yahoo.document.update.ClearValueUpdate;
+import com.yahoo.document.update.FieldUpdate;
+import com.yahoo.vespa.indexinglanguage.expressions.AttributeExpression;
+import com.yahoo.vespa.indexinglanguage.expressions.ExecutionContext;
+import com.yahoo.vespa.indexinglanguage.expressions.Expression;
+import com.yahoo.vespa.indexinglanguage.expressions.InputExpression;
+import com.yahoo.vespa.indexinglanguage.expressions.ScriptExpression;
+import com.yahoo.vespa.indexinglanguage.expressions.StatementExpression;
+import com.yahoo.vespa.indexinglanguage.expressions.TypeContext;
+import com.yahoo.vespa.indexinglanguage.expressions.VerificationException;
 import com.yahoo.vespa.indexinglanguage.parser.ParseException;
+import com.yahoo.yolean.Exceptions;
 import org.junit.Test;
 
 import java.util.List;
-import java.util.Map;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * @author Simon Thoresen Hult
+ * @author bratseth
  */
 public class ScriptTestCase {
 
@@ -57,7 +78,7 @@ public class ScriptTestCase {
     }
 
     @Test
-    public void requireThatEachStatementHasEmptyInput() {
+    public void failsWhenOneStatementIsMissingInput() {
         Document input = new Document(type, "id:scheme:mytype::");
         input.setFieldValue(input.getField("in-1"), new StringFieldValue("69"));
 
@@ -65,12 +86,37 @@ public class ScriptTestCase {
                 new StatementExpression(new InputExpression("in-1"), new AttributeExpression("out-1")),
                 new StatementExpression(new AttributeExpression("out-2")));
         try {
-            exp.verify(input);
-            fail();
+            exp.resolve(input);
+            fail("Expected exception");
         } catch (VerificationException e) {
-            assertEquals(e.getExpressionType(), ScriptExpression.class);
-            assertEquals("Expected any input, but no input is specified", e.getMessage());
+            assertEquals("Invalid expression 'attribute out-2': Expected string input, but no input is provided", e.getMessage());
         }
+    }
+
+    @Test
+    public void failsWhenAllStatementIsMissingInput() {
+        Document input = new Document(type, "id:scheme:mytype::");
+        input.setFieldValue(input.getField("in-1"), new StringFieldValue("69"));
+
+        Expression exp = new ScriptExpression(
+                new StatementExpression(new AttributeExpression("out-2")));
+        try {
+            exp.resolve(input);
+            fail("Expected exception");
+        } catch (VerificationException e) {
+            assertEquals(AttributeExpression.class, e.getExpressionType());
+            assertEquals("Invalid expression 'attribute out-2': Expected string input, but no input is provided", e.getMessage());
+        }
+    }
+
+    @Test
+    public void succeedsWhenAllStatementsHaveInput() {
+        Document input = new Document(type, "id:scheme:mytype::");
+        input.setFieldValue(input.getField("in-1"), new StringFieldValue("69"));
+
+        Expression exp = new ScriptExpression(
+                new StatementExpression(new InputExpression("in-1"), new AttributeExpression("out-1")));
+        exp.resolve(input);
     }
 
     @Test
@@ -111,14 +157,10 @@ public class ScriptTestCase {
         var intField = new Field("myInt", DataType.INT);
         adapter.createField(intField);
         adapter.setValue("myText", new StringFieldValue("input text"));
-        expression.setStatementOutput(new DocumentType("myDocument"), intField);
 
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(DataType.INT, expression.verify(verificationContext));
+        expression.resolve(new TypeContext(adapter));
 
         ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(new StringFieldValue("input text"));
         expression.execute(context);
         assertTrue(adapter.values.containsKey("myInt"));
         assertEquals(-1425622096, adapter.values.get("myInt").getWrappedValue());
@@ -137,14 +179,10 @@ public class ScriptTestCase {
         array.add(new StringFieldValue("first"));
         array.add(new StringFieldValue("second"));
         adapter.setValue("myTextArray", array);
-        expression.setStatementOutput(new DocumentType("myDocument"), intField);
 
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(new ArrayDataType(DataType.INT), expression.verify(verificationContext));
+        expression.resolve(new TypeContext(adapter));
 
         ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
         expression.execute(context);
         assertTrue(adapter.values.containsKey("myIntArray"));
         var intArray = (Array<IntegerFieldValue>)adapter.values.get("myIntArray");
@@ -161,511 +199,534 @@ public class ScriptTestCase {
         var intField = new Field("myLong", DataType.LONG);
         adapter.createField(intField);
         adapter.setValue("myText", new StringFieldValue("input text"));
-        expression.setStatementOutput(new DocumentType("myDocument"), intField);
 
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(DataType.LONG, expression.verify(verificationContext));
+        expression.resolve(new TypeContext(adapter));
 
         ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(new StringFieldValue("input text"));
         expression.execute(context);
         assertTrue(adapter.values.containsKey("myLong"));
         assertEquals(7678158186624760752L, adapter.values.get("myLong").getWrappedValue());
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testEmbed() throws ParseException {
-        // Test parsing without knowledge of any embedders
-        String exp = "input myText | embed emb1 | attribute 'myTensor'";
-        Expression.fromString(exp, new SimpleLinguistics(), Embedder.throwsOnUse.asMap());
+    public void testZCurveArray() throws ParseException {
+        var expression = Expression.fromString("input location_str | for_each { to_pos } | for_each { zcurve } | attribute location_zcurve");
 
-        Map<String, Embedder> embedder = Map.of(
-                "emb1", new MockIndexedEmbedder("myDocument.myTensor")
-        );
-        testEmbedStatement("input myText | embed | attribute 'myTensor'", embedder,
-                           "input text", "[105, 110, 112, 117]");
-        testEmbedStatement("input myText | embed emb1 | attribute 'myTensor'", embedder,
-                           "input text", "[105, 110, 112, 117]");
-        testEmbedStatement("input myText | embed 'emb1' | attribute 'myTensor'", embedder,
-                           "input text", "[105, 110, 112, 117]");
-        testEmbedStatement("input myText | embed 'emb1' | attribute 'myTensor'", embedder,
-                           null, null);
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("location_str", DataType.getArray(DataType.STRING)));
+        var zcurveField = new Field("location_zcurve", DataType.getArray(DataType.LONG));
+        adapter.createField(zcurveField);
+        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
+        array.add(new StringFieldValue("30;40"));
+        array.add(new StringFieldValue("50;60"));
+        adapter.setValue("location_str", array);
 
-        Map<String, Embedder> embedders = Map.of(
-                "emb1", new MockIndexedEmbedder("myDocument.myTensor"),
-                "emb2", new MockIndexedEmbedder("myDocument.myTensor", 1)
-        );
-        testEmbedStatement("input myText | embed emb1 | attribute 'myTensor'", embedders,
-                           "my input", "[109.0, 121.0, 32.0, 105.0]");
-        testEmbedStatement("input myText | embed emb2 | attribute 'myTensor'", embedders,
-                           "my input", "[110.0, 122.0, 33.0, 106.0]");
+        expression.resolve(new TypeContext(adapter));
 
-        assertThrows(() -> testEmbedStatement("input myText | embed | attribute 'myTensor'", embedders, "input text", "[105, 110, 112, 117]"),
-                     "Multiple embedders are provided but no embedder id is given. Valid embedders are emb1, emb2");
-        assertThrows(() -> testEmbedStatement("input myText | embed emb3 | attribute 'myTensor'", embedders, "input text", "[105, 110, 112, 117]"),
-                     "Can't find embedder 'emb3'. Valid embedders are emb1, emb2");
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertTrue(adapter.values.containsKey("location_zcurve"));
+        var longArray = (Array<LongFieldValue>)adapter.values.get("location_zcurve");
+        assertEquals(  2516, longArray.get(0).getLong());
+        assertEquals(4004, longArray.get(1).getLong());
     }
 
-    private void testEmbedStatement(String expressionString, Map<String, Embedder> embedders, String input, String expected) {
+    @Test
+    public void testForEachFollowedByGetVar() {
+        String expressionString =
+                """
+                input uris | for_each {
+                    if ((_ | substring 0 7) == "http://") {
+                         _ | substring 7 1000 | set_var selected
+                    } else {
+                        _
+                    }
+                    } | get_var selected | attribute id
+                """;
+
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom(expressionString);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var uris = new Field("uris", new ArrayDataType(DataType.STRING));
+        var id = new Field("id", DataType.STRING);
+        adapter.createField(uris);
+        adapter.createField(id);
+        var array = new Array<StringFieldValue>(uris.getDataType());
+        array.add(new StringFieldValue("value1"));
+        array.add(new StringFieldValue("http://value2"));
+        adapter.setValue("uris", array);
+
+        expression.resolve(adapter);
+
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertTrue(adapter.values.containsKey("id"));
+        assertEquals("value2", ((StringFieldValue)adapter.values.get("id")).getString());
+    }
+
+    @Test
+    public void testFloatAndIntArithmetic() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myFloat * 10 | attribute myFloat");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var myFloat = new Field("myFloat", DataType.FLOAT);
+        adapter.createField(myFloat);
+        adapter.setValue("myFloat", new FloatFieldValue(1.3f));
+
+        expression.resolve(adapter);
+
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertEquals(13.0f, ((FloatFieldValue)adapter.values.get("myFloat")).getFloat(), 0.000001);
+    }
+
+    @Test
+    public void testChoiceExpression() {
+        var tester = new ScriptTester();
+        // Nonsensical expression whose purpose is to test cat being given any as output type
+        var expression = tester.expressionFrom("(get_var A | to_array) . (get_var B | to_array) | get_var B | to_array | index myStringArray");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myStringArray", ArrayDataType.getArray(DataType.STRING)));
+
+        var verificationContext = new TypeContext(adapter);
+        verificationContext.setVariableType("A", DataType.STRING);
+        verificationContext.setVariableType("B", DataType.STRING);
+        expression.resolve(verificationContext);
+
+        var context = new ExecutionContext(adapter);
+        context.setVariable("B", new StringFieldValue("b_value"));
+        expression.execute(context);
+        assertEquals("b_value", ((Array)adapter.values.get("myStringArray")).get(0).toString());
+    }
+
+    @Test
+    public void testCatAndVariableExpression_simple() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom(
+                "input myString | (get_var A | to_array) . (get_var B | to_array) | attribute myStringArray");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myString", DataType.STRING));
+        adapter.createField(new Field("myStringArray", ArrayDataType.getArray(DataType.STRING)));
+
+        var verificationContext = new TypeContext(adapter);
+        verificationContext.setVariableType("A", DataType.STRING);
+        verificationContext.setVariableType("B", DataType.STRING);
+        expression.resolve(verificationContext);
+
+        var context = new ExecutionContext(adapter);
+        context.setVariable("A", new StringFieldValue("value 4"));
+        context.setVariable("B", new StringFieldValue("value 5"));
+        expression.execute(context);
+        assertEquals("[value 4, value 5]", adapter.values.get("myStringArray").toString());
+    }
+
+    @Test
+    public void testCatAndVariableExpression_complex() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom(
+                "input myString | if ((get_var DX | to_bool) == true) { " +
+                "(get_var A | to_array) . (get_var B | to_array) . (get_var C | to_array) . (get_var D | to_array) | set_var R; } " +
+                "else { if ((get_var CX | to_bool) == true) { " +
+                "(get_var A | to_array) . (get_var B | to_array) . (get_var C | to_array) | set_var R; } " +
+                "else { if ((get_var BX | to_bool) == true) { (get_var A | to_array) . (get_var B | to_array) | set_var R; } " +
+                "else { get_var A | to_array | set_var R; }; }; } | get_var R | for_each { _ } | attribute myStringArray");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myString", DataType.STRING));
+        adapter.createField(new Field("myStringArray", ArrayDataType.getArray(DataType.STRING)));
+
+        var verificationContext = new TypeContext(adapter);
+        verificationContext.setVariableType("BX", DataType.STRING);
+        verificationContext.setVariableType("CX", DataType.STRING);
+        verificationContext.setVariableType("DX", DataType.STRING);
+        verificationContext.setVariableType("A", DataType.STRING);
+        verificationContext.setVariableType("B", DataType.STRING);
+        verificationContext.setVariableType("C", DataType.STRING);
+        verificationContext.setVariableType("D", DataType.STRING);
+        expression.resolve(verificationContext);
+
+        var context = new ExecutionContext(adapter);
+        context.setVariable("BX", new StringFieldValue("value 1"));
+        context.setVariable("CX", new StringFieldValue("value 2"));
+        context.setVariable("DX", new StringFieldValue("value 3"));
+        context.setVariable("A", new StringFieldValue("value 4"));
+        context.setVariable("B", new StringFieldValue("value 5"));
+        context.setVariable("C", new StringFieldValue("value 6"));
+        context.setVariable("D", new StringFieldValue("value 7"));
+        expression.execute(context);
+        assertEquals("[value 4, value 5, value 6, value 7]", adapter.values.get("myStringArray").toString());
+    }
+
+    @Test
+    public void testForEachOverStruct() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myInStruct | for_each { substring 0 2 } | attribute myOutStruct");
+        StructDataType type = new StructDataType("myStruct");
+        type.addField(new Field("myString1", DataType.STRING));
+        type.addField(new Field("myString2", DataType.STRING));
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myInStruct", type));
+        adapter.createField(new Field("myOutStruct", type));
+        expression.resolve(adapter);
+
+        var inStruct = new Struct(type);
+        inStruct.setFieldValue("myString1", "foo");
+        inStruct.setFieldValue("myString2", "the bar");
+        adapter.setValue("myInStruct", inStruct);
+        var context = new ExecutionContext(adapter);
+        expression.execute(context);
+        var outStruct = (Struct)adapter.values.get("myOutStruct");
+        assertEquals("fo", outStruct.getFieldValue("myString1").getWrappedValue());
+        assertEquals("th", outStruct.getFieldValue("myString2").getWrappedValue());
+    }
+
+    @Test
+    public void testForEachOverStructCannotConvertType() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myStructField | for_each { to_array } | attribute myIntArray");
+        StructDataType type = new StructDataType("myStruct");
+        type.addField(new Field("myInt", DataType.INT));
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myStructField", type));
+        adapter.createField(new Field("myIntArray", DataType.getArray(DataType.INT)));
         try {
-            var expression = Expression.fromString(expressionString, new SimpleLinguistics(), embedders);
-            TensorType tensorType = TensorType.fromSpec("tensor(d[4])");
-
-            SimpleTestAdapter adapter = new SimpleTestAdapter();
-            adapter.createField(new Field("myText", DataType.STRING));
-            var tensorField = new Field("myTensor", new TensorDataType(tensorType));
-            adapter.createField(tensorField);
-            if (input != null)
-                adapter.setValue("myText", new StringFieldValue(input));
-            expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-            // Necessary to resolve output type
-            VerificationContext verificationContext = new VerificationContext(adapter);
-            assertEquals(TensorDataType.class, expression.verify(verificationContext).getClass());
-
-            ExecutionContext context = new ExecutionContext(adapter);
-            expression.execute(context);
-            if (input == null) {
-                assertFalse(adapter.values.containsKey("myTensor"));
-            }
-            else {
-                assertTrue(adapter.values.containsKey("myTensor"));
-                assertEquals(Tensor.from(tensorType, expected),
-                             ((TensorFieldValue) adapter.values.get("myTensor")).getTensor().get());
-            }
+            expression.resolve(adapter);
+            fail();
+        } catch (VerificationException e) {
+            assertEquals("Invalid expression 'for_each { to_array }': Struct field 'myInt' has type int but expression produces Array<int>",
+                         e.getMessage());
         }
-        catch (ParseException e) {
-            throw new IllegalArgumentException(e);
-        }
+    }
+
+    @Test
+    public void testMultiStatementInput() {
+        var tester = new ScriptTester();
+        // A multi-statement indexing block as rewritten by the config model:
+        var expression = tester.expressionFrom("clear_state | guard { input myString | { \"en\" | set_language; tokenize normalize keep-case stem:\"BEST\" | index myOutputString; }; }");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var myString = new Field("myString", DataType.STRING);
+        adapter.createField(myString);
+        adapter.setValue("myString", new StringFieldValue("Test value"));
+        adapter.createField(new Field("myOutputString", DataType.STRING));
+
+        expression.resolve(adapter);
+
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertEquals("Test value", ((StringFieldValue)adapter.values.get("myOutputString")).getString());
+    }
+
+    @Test
+    public void testToUri() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myString | to_uri | attribute myUri");
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var myString = new Field("myString", DataType.STRING);
+        adapter.createField(myString);
+        adapter.setValue("myString", new StringFieldValue("https://vespa.ai"));
+        adapter.createField(new Field("myUri", DataType.URI));
+
+        expression.resolve(adapter);
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertEquals(new UriFieldValue("https://vespa.ai"), adapter.values.get("myUri"));
     }
 
     @SuppressWarnings("unchecked")
     @Test
-    public void testArrayEmbed() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockIndexedEmbedder("myDocument.myTensorArray"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(d[4])");
-        var expression = Expression.fromString("input myTextArray | for_each { embed } | attribute 'myTensorArray'",
-                                               new SimpleLinguistics(),
-                                               embedders);
+    public void testForEachWithWeightedSet() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myWeightedSet | for_each { to_int } | attribute myInts");
 
         SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
+        var myWeightedSet = new WeightedSet<StringFieldValue>(WeightedSetDataType.getWeightedSet(DataType.STRING));
+        adapter.createField(new Field("myWeightedSet", myWeightedSet.getDataType()));
+        adapter.setValue("myWeightedSet", myWeightedSet);
+        adapter.createField(new Field("myInts", WeightedSetDataType.getWeightedSet(DataType.INT)));
 
-        var tensorField = new Field("myTensorArray", new ArrayDataType(new TensorDataType(tensorType)));
-        adapter.createField(tensorField);
-
-        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
-        array.add(new StringFieldValue("first"));
-        array.add(new StringFieldValue("second"));
-        adapter.setValue("myTextArray", array);
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(new ArrayDataType(new TensorDataType(tensorType)), expression.verify(verificationContext));
-
+        expression.resolve(adapter);
         ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
         expression.execute(context);
-        assertTrue(adapter.values.containsKey("myTensorArray"));
-        var tensorArray = (Array<TensorFieldValue>)adapter.values.get("myTensorArray");
-        assertEquals(Tensor.from(tensorType, "[102, 105, 114, 115]"), tensorArray.get(0).getTensor().get());
-        assertEquals(Tensor.from(tensorType, "[115, 101,  99, 111]"), tensorArray.get(1).getTensor().get());
+        assertTrue(((WeightedSet<IntegerFieldValue>)adapter.values.get("myInts")).isEmpty());
+
+        myWeightedSet.put(new StringFieldValue("3"), 37);
+        adapter.createField(new Field("myWeightedSet", myWeightedSet.getDataType()));
+        adapter.setValue("myWeightedSet", myWeightedSet);
+        adapter.createField(new Field("myInts", WeightedSetDataType.getWeightedSet(DataType.INT)));
+
+        expression.resolve(adapter);
+        expression.execute(context);
+        assertEquals(37, ((WeightedSet<IntegerFieldValue>)adapter.values.get("myInts")).get(new IntegerFieldValue(3)).intValue());
     }
 
+    @SuppressWarnings("unchecked")
     @Test
-    public void testArrayEmbedWithConcatenation() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockIndexedEmbedder("myDocument.mySparseTensor"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, d[4])");
-        var expression = Expression.fromString("input myTextArray | for_each { input title . \" \" . _ } | embed | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
+    public void testForEachArray() {
+        var tester = new ScriptTester();
+        var expression = tester.expressionFrom("input myArray | for_each { to_int } | attribute myInts");
 
         SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
+        var myArray = new Array<StringFieldValue>(DataType.getArray(DataType.STRING));
+        adapter.createField(new Field("myArray", myArray.getDataType()));
+        adapter.setValue("myArray", myArray);
+        adapter.createField(new Field("myInts", DataType.getArray(DataType.INT)));
 
-        var tensorField = new Field("mySparseTensor", new TensorDataType(tensorType));
-        adapter.createField(tensorField);
-
-        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
-        array.add(new StringFieldValue("first"));
-        array.add(new StringFieldValue("second"));
-        adapter.setValue("myTextArray", array);
-
-        var titleField = new Field("title", DataType.STRING);
-        adapter.createField(titleField);
-        adapter.setValue("title", new StringFieldValue("title1"));
-
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(new TensorDataType(tensorType), expression.verify(verificationContext));
-
+        expression.resolve(adapter);
         ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
         expression.execute(context);
-        assertTrue(adapter.values.containsKey("mySparseTensor"));
-        var sparseTensor = (TensorFieldValue)adapter.values.get("mySparseTensor");
-        assertEquals(Tensor.from(tensorType, "{ '0':[116.0, 105.0, 116.0, 108.0], 1:[116.0, 105.0, 116.0, 108.0]}"),
-                     sparseTensor.getTensor().get());
-    }
+        assertTrue(((Array<IntegerFieldValue>)adapter.values.get("myInts")).isEmpty());
 
-    /** Multiple paragraphs */
-    @Test
-    public void testArrayEmbedTo2dMixedTensor() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockIndexedEmbedder("myDocument.mySparseTensor"));
+        myArray.add(new StringFieldValue("37"));
+        adapter.createField(new Field("myArray", myArray.getDataType()));
+        adapter.setValue("myArray", myArray);
+        adapter.createField(new Field("myInts", DataType.getArray(DataType.INT)));
 
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, d[4])");
-        var expression = Expression.fromString("input myTextArray | embed | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-
-        var tensorField = new Field("mySparseTensor", new TensorDataType(tensorType));
-        adapter.createField(tensorField);
-
-        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
-        array.add(new StringFieldValue("first"));
-        array.add(new StringFieldValue("second"));
-        adapter.setValue("myTextArray", array);
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(new TensorDataType(tensorType), expression.verify(verificationContext));
-
-        ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
+        expression.resolve(adapter);
         expression.execute(context);
-        assertTrue(adapter.values.containsKey("mySparseTensor"));
-        var sparseTensor = (TensorFieldValue)adapter.values.get("mySparseTensor");
-        assertEquals(Tensor.from(tensorType, "{ '0':[102, 105, 114, 115], '1':[115, 101,  99, 111]}"),
-                     sparseTensor.getTensor().get());
+        assertEquals(37, ((Array<IntegerFieldValue>)adapter.values.get("myInts")).get(0).getInteger());
     }
 
-    /** Multiple paragraphs, and each paragraph leading to multiple vectors (ColBert style) */
     @Test
-    public void testArrayEmbedTo3dMixedTensor() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockMixedEmbedder("myDocument.mySparseTensor"));
+    public void testMultipleVariableStatements() {
+        String script = """
+            {
+            # Initialize variables used for superduper ranking
+            1 | set_var superdupermod;
+            2 | set_var tmppubdate;
+            input attributes_src | lowercase | summary attributes | index attributes | split ";" | for_each {
+              # Loop through each token in attributes string
+              switch {
 
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, token{}, d[3])");
-        var expression = Expression.fromString("input myTextArray | embed emb1 passage | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
-        assertEquals("input myTextArray | embed emb1 passage | attribute mySparseTensor", expression.toString());
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-        var tensorField = new Field("mySparseTensor", new TensorDataType(tensorType));
-        adapter.createField(tensorField);
-
-        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
-        array.add(new StringFieldValue("first"));
-        array.add(new StringFieldValue("sec"));
-        adapter.setValue("myTextArray", array);
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        assertEquals(new TensorDataType(tensorType), expression.verify(new VerificationContext(adapter)));
-
-        ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
-        expression.execute(context);
-        assertTrue(adapter.values.containsKey("mySparseTensor"));
-        var sparseTensor = (TensorFieldValue)adapter.values.get("mySparseTensor");
-        // The two "passages" are [first, sec], the middle (d=1) token encodes those letters
-        assertEquals(Tensor.from(tensorType,
-                                 """
-                                 {
-                                 {passage:0, token:0, d:0}: 101,
-                                 {passage:0, token:0, d:1}: 102,
-                                 {passage:0, token:0, d:2}: 103,
-                                 {passage:0, token:1, d:0}: 104,
-                                 {passage:0, token:1, d:1}: 105,
-                                 {passage:0, token:1, d:2}: 106,
-                                 {passage:0, token:2, d:0}: 113,
-                                 {passage:0, token:2, d:1}: 114,
-                                 {passage:0, token:2, d:2}: 115,
-                                 {passage:0, token:3, d:0}: 114,
-                                 {passage:0, token:3, d:1}: 115,
-                                 {passage:0, token:3, d:2}: 116,
-                                 {passage:0, token:4, d:0}: 115,
-                                 {passage:0, token:4, d:1}: 116,
-                                 {passage:0, token:4, d:2}: 117,
-                                 {passage:1, token:0, d:0}: 114,
-                                 {passage:1, token:0, d:1}: 115,
-                                 {passage:1, token:0, d:2}: 116,
-                                 {passage:1, token:1, d:0}: 100,
-                                 {passage:1, token:1, d:1}: 101,
-                                 {passage:1, token:1, d:2}: 102,
-                                 {passage:1, token:2, d:0}:  98,
-                                 {passage:1, token:2, d:1}:  99,
-                                 {passage:1, token:2, d:2}: 100
-                                 }
-                                 """),
-                     sparseTensor.getTensor().get());
-    }
-
-    /** Multiple paragraphs, and each paragraph leading to multiple vectors (ColBert style) */
-    @Test
-    public void testArrayEmbedTo3dMixedTensor_missingDimensionArgument() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockMixedEmbedder("myDocument.mySparseTensor"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, token{}, d[3])");
-        var expression = Expression.fromString("input myTextArray | embed emb1 | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-        adapter.createField(new Field("mySparseTensor", new TensorDataType(tensorType)));
-
-        try {
-            expression.verify(new VerificationContext(adapter));
-            fail("Expected exception");
-        }
-        catch (VerificationException e) {
-            assertEquals("When the embedding target field is a 3d tensor the name of the tensor dimension that corresponds to the input array elements must be given as a second argument to embed, e.g: ... | embed colbert paragraph | ...",
-                         e.getMessage());
-        }
-    }
-
-    /** Multiple paragraphs, and each paragraph leading to multiple vectors (ColBert style) */
-    @Test
-    public void testArrayEmbedTo3dMixedTensor_wrongDimensionArgument() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockMixedEmbedder("myDocument.mySparseTensor"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, token{}, d[3])");
-        var expression = Expression.fromString("input myTextArray | embed emb1 d | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-        adapter.createField(new Field("mySparseTensor", new TensorDataType(tensorType)));
-
-        try {
-            expression.verify(new VerificationContext(adapter));
-            fail("Expected exception");
-        }
-        catch (VerificationException e) {
-            assertEquals("The dimension 'd' given to embed is not a sparse dimension of the target type tensor(d[3],passage{},token{})",
-                         e.getMessage());
-        }
-    }
-
-    @SuppressWarnings("OptionalGetWithoutIsPresent")
-    @Test
-    public void testEmbedToSparseTensor() throws ParseException {
-        Embedder mappedEmbedder = new MockMappedEmbedder("myDocument.mySparseTensor", 0);
-        Map<String, Embedder> embedders = Map.of("emb1",mappedEmbedder);
-
-        TensorType tensorType = TensorType.fromSpec("tensor(t{})");
-        var expression = Expression.fromString("input text | embed | attribute 'mySparseTensor'",
-                                               new SimpleLinguistics(),
-                                               embedders);
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("text", DataType.STRING));
-
-        var tensorField = new Field("mySparseTensor", new TensorDataType(tensorType));
-        adapter.createField(tensorField);
-
-        var text = new StringFieldValue("abc");
-        adapter.setValue("text", text);
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        // Necessary to resolve output type
-        VerificationContext verificationContext = new VerificationContext(adapter);
-        assertEquals(new TensorDataType(tensorType), expression.verify(verificationContext));
-
-        ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(text);
-        expression.execute(context);
-        assertTrue(adapter.values.containsKey("mySparseTensor"));
-        var sparseTensor = (TensorFieldValue)adapter.values.get("mySparseTensor");
-        assertEquals(Tensor.from(tensorType, "tensor(t{}):{97:97.0, 98:98.0, 99:99.0}"),
-                     sparseTensor.getTensor().get());
-        assertEquals("Cached value always set by MockMappedEmbedder is present",
-                     "myCachedValue", context.getCachedValue("myCacheKey"));
-    }
-
-    /** Multiple paragraphs with sparse encoding (splade style) */
-    @Test
-    public void testArrayEmbedTo2dMappedTensor_wrongDimensionArgument() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockMappedEmbedder("myDocument.my2DSparseTensor"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, token{})");
-        var expression = Expression.fromString("input myTextArray | embed emb1 doh | attribute 'my2DSparseTensor'",
-                new SimpleLinguistics(),
-                embedders);
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-        adapter.createField(new Field("my2DSparseTensor", new TensorDataType(tensorType)));
-
-        try {
-            expression.verify(new VerificationContext(adapter));
-            fail("Expected exception");
-        }
-        catch (VerificationException e) {
-            assertEquals("The dimension 'doh' given to embed is not a sparse dimension of the target type tensor(passage{},token{})",
-                    e.getMessage());
-        }
-    }
-
-    /** Multiple paragraphs with sparse encoding (splade style) */
-    @Test
-    @SuppressWarnings("OptionalGetWithoutIsPresent")
-    public void testArrayEmbedTo2MappedTensor() throws ParseException {
-        Map<String, Embedder> embedders = Map.of("emb1", new MockMappedEmbedder("myDocument.my2DSparseTensor"));
-
-        TensorType tensorType = TensorType.fromSpec("tensor(passage{}, token{})");
-        var expression = Expression.fromString("input myTextArray | embed emb1 passage | attribute 'my2DSparseTensor'",
-                new SimpleLinguistics(),
-                embedders);
-        assertEquals("input myTextArray | embed emb1 passage | attribute my2DSparseTensor", expression.toString());
-
-        SimpleTestAdapter adapter = new SimpleTestAdapter();
-        adapter.createField(new Field("myTextArray", new ArrayDataType(DataType.STRING)));
-        var tensorField = new Field("my2DSparseTensor", new TensorDataType(tensorType));
-        adapter.createField(tensorField);
-
-        var array = new Array<StringFieldValue>(new ArrayDataType(DataType.STRING));
-        array.add(new StringFieldValue("abc"));
-        array.add(new StringFieldValue("cde"));
-        adapter.setValue("myTextArray", array);
-        expression.setStatementOutput(new DocumentType("myDocument"), tensorField);
-
-        assertEquals(new TensorDataType(tensorType), expression.verify(new VerificationContext(adapter)));
-
-        ExecutionContext context = new ExecutionContext(adapter);
-        context.setValue(array);
-        expression.execute(context);
-        assertTrue(adapter.values.containsKey("my2DSparseTensor"));
-        var sparse2DTensor = (TensorFieldValue)adapter.values.get("my2DSparseTensor");
-        assertEquals(Tensor.from(
-                tensorType,
-                        "tensor(passage{},token{}):" +
-                                "{{passage:0,token:97}:97.0, " +
-                                "{passage:0,token:98}:98.0, " +
-                                "{passage:0,token:99}:99.0, " +
-                                "{passage:1,token:100}:100.0, " +
-                                "{passage:1,token:101}:101.0, " +
-                                "{passage:1,token:99}:99.0}"),
-                sparse2DTensor.getTensor().get());
-    }
-
-
-    private void assertThrows(Runnable r, String expectedMessage) {
-        try {
-            r.run();
-            fail();
-        } catch (IllegalStateException e) {
-            assertEquals(expectedMessage, e.getMessage());
-        }
-    }
-
-    private static abstract class MockEmbedder implements Embedder {
-
-        final String expectedDestination;
-        final int addition;
-
-        public MockEmbedder(String expectedDestination, int addition) {
-            this.expectedDestination = expectedDestination;
-            this.addition = addition;
-        }
-
-        @Override
-        public List<Integer> embed(String text, Embedder.Context context) {
-            return null;
-        }
-
-        void verifyDestination(Embedder.Context context) {
-            assertEquals(expectedDestination, context.getDestination());
-       }
-
-    }
-
-    /** An embedder which returns the char value of each letter in the input as a 1d indexed tensor. */
-    private static class MockIndexedEmbedder extends MockEmbedder {
-
-        public MockIndexedEmbedder(String expectedDestination) {
-            this(expectedDestination, 0);
-        }
-
-        public MockIndexedEmbedder(String expectedDestination, int addition) {
-            super(expectedDestination, addition);
-        }
-
-        @Override
-        public Tensor embed(String text, Embedder.Context context, TensorType tensorType) {
-            verifyDestination(context);
-            var b = Tensor.Builder.of(tensorType);
-            for (int i = 0; i < tensorType.dimensions().get(0).size().get(); i++)
-                b.cell(i < text.length() ? text.charAt(i) + addition : 0, i);
-            return b.build();
-        }
-
-    }
-
-    /** An embedder which returns the char value of each letter in the input as a 1d mapped tensor. */
-    private static class MockMappedEmbedder extends MockEmbedder {
-
-        public MockMappedEmbedder(String expectedDestination) {
-            this(expectedDestination, 0);
-        }
-
-        public MockMappedEmbedder(String expectedDestination, int addition) {
-            super(expectedDestination, addition);
-        }
-
-        @Override
-        public Tensor embed(String text, Embedder.Context context, TensorType tensorType) {
-            verifyDestination(context);
-            context.putCachedValue("myCacheKey", "myCachedValue");
-            var b = Tensor.Builder.of(tensorType);
-            for (int i = 0; i < text.length(); i++)
-                b.cell().label(tensorType.dimensions().get(0).name(), text.charAt(i)).value(text.charAt(i) + addition);
-            return b.build();
-        }
-
-    }
-
-    /**
-     * An embedder which returns the char value of each letter in the input as a 2d mixed tensor where each input
-     * char becomes an indexed dimension containing input-1, input, input+1.
-     */
-    private static class MockMixedEmbedder extends MockEmbedder {
-
-        public MockMixedEmbedder(String expectedDestination) {
-            this(expectedDestination, 0);
-        }
-
-        public MockMixedEmbedder(String expectedDestination, int addition) {
-            super(expectedDestination, addition);
-        }
-
-        @Override
-        public Tensor embed(String text, Embedder.Context context, TensorType tensorType) {
-            verifyDestination(context);
-            var b = Tensor.Builder.of(tensorType);
-            String mappedDimension = tensorType.mappedSubtype().dimensions().get(0).name();
-            String indexedDimension = tensorType.indexedSubtype().dimensions().get(0).name();
-            for (int i = 0; i < text.length(); i++) {
-                for (int j = 0; j < 3; j++) {
-                    b.cell().label(mappedDimension, i)
-                            .label(indexedDimension, j)
-                            .value(text.charAt(i) + addition + j - 1);
-                }
+                # De-rank PR articles using the following rules:
+                #   1. Set editedstaticrank to '1'
+                #   2. Subtract 2.5 hours (9000 seconds) from timestamp used in ranking
+                #   3. No superduper rank
+                case "typepr": 1 | set_var tmpsourcerank | get_var tmppubdate - 9000 | set_var tmppubdate | 0 | set_var superdupermod;
+              }
+            };
             }
-            return b.build();
+            """;
+
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("attributes_src", DataType.STRING));
+        adapter.createField(new Field("attributes", DataType.STRING));
+        expression.resolve(adapter);
+    }
+
+    // for_each is nested in a block. Will happen if the schema contains "indexing: { summary | index }"
+    @Test
+    public void testNestedScript() {
+        String script = """
+                        {
+                        clear_state | guard { input array_1 | { for_each { tokenize normalize stem:"BEST" } | summary array_1 | index array_1; }; }
+                        }
+                        """;
+
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var myArray = new Array<StringFieldValue>(DataType.getArray(DataType.STRING));
+        adapter.createField(new Field("array_1", myArray.getDataType()));
+        adapter.setValue("myArray", myArray);
+        expression.resolve(adapter);
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+    }
+
+    @Test
+    public void testNestedMultiStatementScript() {
+        String script = """
+                        {
+                        clear_state | guard { input array_1 | { "en" | set_language; for_each { tokenize normalize stem:"BEST" } | summary array_1 | index array_1; }; }
+                        }
+                        """;
+
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var myArray = new Array<StringFieldValue>(DataType.getArray(DataType.STRING));
+        adapter.createField(new Field("array_1", myArray.getDataType()));
+        adapter.setValue("myArray", myArray);
+        expression.resolve(adapter);
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+    }
+
+    @Test
+    public void testGettingDetectedLanguage() {
+        String script = """
+                {
+                    input text | tokenize normalize | index text;
+                    get_language | set_var language;
+                }
+                """;
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        var textField = new Field("text", (DataType.STRING));
+        adapter.createField(textField);
+        adapter.setValue("text", new StringFieldValue("Hello, world!"));
+        expression.resolve(adapter);
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        assertEquals("en", context.getVariable("language").getWrappedValue());
+    }
+
+    @Test
+    public void testChunking() {
+        String script = "{ input myText | chunk chunkerId | summary myChunks | index myChunks }";
+
+        var tester = new ScriptTester();
+        tester.chunkers.put("chunkerId", new SentenceChunker());
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myText", DataType.STRING));
+        adapter.createField(new Field("myChunks", DataType.getArray(DataType.STRING)));
+
+        expression.resolve(adapter);
+
+        adapter.setValue("myText", new StringFieldValue("Sentence 1. Sentence 2"));
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        var chunks = context.getFieldValue("myChunks");
+        assertTrue(chunks instanceof Array);
+        var array = (Array<?>)chunks;
+        assertEquals(2, array.size());
+        assertEquals("Sentence 1.", array.get(0).getWrappedValue());
+        assertEquals(" Sentence 2", array.get(1).getWrappedValue());
+    }
+
+    @Test
+    public void testInvalidChunking() {
+        try {
+            String script = "{ input myText | chunk | summary myChunks | index myChunks }";
+            var tester = new ScriptTester();
+            tester.chunkers.put("chunkerId", new SentenceChunker());
+            tester.scriptFrom(script);
+            fail("Expected exception");
+        } catch (IllegalArgumentException e) {
+            assertEquals("A chunker id must be specified. Valid chunkers are chunkerId",
+                         Exceptions.toMessageString(e));
         }
+    }
+
+    @Test
+    public void testChunkWithArguments() {
+        String script = "{ input myText | chunk fixed-length 4 | summary myChunks | index myChunks }";
+        var tester = new ScriptTester();
+        tester.chunkers.put("fixed-length", new FixedLengthChunker());
+        var expression = tester.scriptFrom(script);
+
+        SimpleTestAdapter adapter = new SimpleTestAdapter();
+        adapter.createField(new Field("myText", DataType.STRING));
+        adapter.createField(new Field("myChunks", DataType.getArray(DataType.STRING)));
+
+        expression.resolve(adapter);
+
+        adapter.setValue("myText", new StringFieldValue("Hello world!"));
+        ExecutionContext context = new ExecutionContext(adapter);
+        expression.execute(context);
+        var chunks = context.getFieldValue("myChunks");
+        assertTrue(chunks instanceof Array);
+        var array = (Array<?>)chunks;
+        assertEquals(3, array.size());
+        assertEquals("Hell", array.get(0).getWrappedValue());
+        assertEquals("o wo", array.get(1).getWrappedValue());
+        assertEquals("rld!", array.get(2).getWrappedValue());
+    }
+
+    @Test
+    public void testClearValueUpdate() {
+        String script = """
+                        {
+                        clear_state | guard { input string1 | tokenize normalize stem:"BEST" | summary string1 | index string1; }
+                        }
+                        """;
+
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        DocumentType docType = new DocumentType("my_type");
+        Field field1 = new Field("string1", DataType.STRING);
+        Field field2 = new Field("string2", DataType.STRING);
+        Field field3 = new Field("string3", DataType.STRING);
+        docType.addField(field1);
+        docType.addField(field2);
+        docType.addField(field3);
+
+        DocumentUpdate update = new DocumentUpdate(docType, "id:foo:my_type::1");
+        update.addFieldUpdate(FieldUpdate.createClear(field1));
+
+        FieldValuesFactory factory = new FieldValuesFactory();
+        List<UpdateFieldValues> updates = factory.asFieldValues(update);
+
+        expression.resolve(update);
+        for (var fieldValueUpdate : updates)
+            expression.execute(fieldValueUpdate);
+
+        var update1 = updates.get(0).getOutput().getFieldUpdate("string1").getValueUpdate(0);
+        assertTrue(update1 instanceof ClearValueUpdate);
+    }
+
+    @Test
+    public void testGetValue() {
+        String script = """
+        {
+          ( input my_byte | to_int ) * 2 + (input my_map | get_value 2 | get_field my_field ) | to_byte | attribute my_output
+        }
+        """;
+
+        var tester = new ScriptTester();
+        var expression = tester.scriptFrom(script);
+
+        DocumentType docType = new DocumentType("test");
+        Field field1 = new Field("my_byte", DataType.BYTE);
+        StructDataType myStruct = new StructDataType("my_struct");
+        myStruct.addField(new Field("my_field", DataType.INT));
+        var mapType = new MapDataType(DataType.INT, myStruct);
+        Field field2 = new Field("my_map", mapType);
+        Field field3 = new Field("my_output", DataType.BYTE);
+        docType.addField(field1);
+        docType.addField(field2);
+        docType.addField(field3);
+
+        DocumentUpdate update = new DocumentUpdate(docType, "id:foo:test::1");
+        update.addFieldUpdate(FieldUpdate.createAssign(field1, new ByteFieldValue(60)));
+        var map = new MapFieldValue<>(mapType);
+        var struct1 = new Struct(myStruct);
+        struct1.setFieldValue("my_field", 3);
+        map.put(new IntegerFieldValue(1), struct1);
+        var struct2 = new Struct(myStruct);
+        struct2.setFieldValue("my_field", 7);
+        map.put(new IntegerFieldValue(2), struct2);
+        update.addFieldUpdate(FieldUpdate.createAssign(field2, map));
+
+        FieldValuesFactory factory = new FieldValuesFactory();
+
+        List<UpdateFieldValues> updates = factory.asFieldValues(update);
+        expression.resolve(update);
+        for (var fieldValueUpdate : updates)
+            expression.execute(fieldValueUpdate);
+
+        var update1 = updates.get(0).getOutput().getFieldUpdate("my_output").getValueUpdate(0);
+        assertTrue(update1 instanceof AssignValueUpdate);
+        assertEquals((byte)(60 * 2 + 7), update1.getValue().getWrappedValue());
     }
 
 }

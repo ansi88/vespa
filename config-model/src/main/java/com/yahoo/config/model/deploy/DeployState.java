@@ -20,6 +20,7 @@ import com.yahoo.config.model.api.Model;
 import com.yahoo.config.model.api.ModelContext;
 import com.yahoo.config.model.api.OnnxModelCost;
 import com.yahoo.config.model.api.Provisioned;
+import com.yahoo.config.model.api.SidecarProvider;
 import com.yahoo.config.model.api.Reindexing;
 import com.yahoo.config.model.api.ValidationParameters;
 import com.yahoo.config.model.application.provider.BaseDeployLogger;
@@ -27,9 +28,12 @@ import com.yahoo.config.model.application.provider.MockFileRegistry;
 import com.yahoo.config.model.provision.HostsXmlProvisioner;
 import com.yahoo.config.model.provision.SingleNodeProvisioner;
 import com.yahoo.config.model.test.MockApplicationPackage;
+import com.yahoo.config.provision.AzName;
 import com.yahoo.config.provision.DockerImage;
+import com.yahoo.config.provision.InstanceName;
 import com.yahoo.config.provision.Zone;
 import com.yahoo.io.IOUtils;
+import com.yahoo.io.reader.NamedReader;
 import com.yahoo.schema.Application;
 import com.yahoo.schema.ApplicationBuilder;
 import com.yahoo.schema.RankProfileRegistry;
@@ -78,7 +82,7 @@ public class DeployState implements ConfigDefinitionStore {
     private final ModelContext.Properties properties;
     private final Version vespaVersion;
     private final Set<ContainerEndpoint> endpoints;
-    private final Zone zone; // TODO: Zone is set separately both here and in properties
+    private final Zone zone;
     private final QueryProfiles queryProfiles;
     private final SemanticRules semanticRules;
     private final ImportedMlModels importedModels;
@@ -91,18 +95,7 @@ public class DeployState implements ConfigDefinitionStore {
     private final Reindexing reindexing;
     private final ExecutorService executor;
     private final OnnxModelCost onnxModelCost;
-
-    public static DeployState createTestState() {
-        return new Builder().build();
-    }
-
-    public static DeployState createTestState(DeployLogger testLogger) {
-        return new Builder().deployLogger(testLogger).build();
-    }
-
-    public static DeployState createTestState(ApplicationPackage applicationPackage) {
-        return new Builder().applicationPackage(applicationPackage).build();
-    }
+    private final Optional<SidecarProvider> sidecarProvider;
 
     private DeployState(Application application,
                         RankProfileRegistry rankProfileRegistry,
@@ -126,7 +119,8 @@ public class DeployState implements ConfigDefinitionStore {
                         Optional<DockerImage> wantedDockerImageRepo,
                         Reindexing reindexing,
                         Optional<ValidationOverrides> validationOverrides,
-                        OnnxModelCost onnxModelCost) {
+                        OnnxModelCost onnxModelCost,
+                        Optional<SidecarProvider> sidecarProvider) {
         this.logger = deployLogger;
         this.fileRegistry = fileRegistry;
         this.executor = executor;
@@ -136,7 +130,7 @@ public class DeployState implements ConfigDefinitionStore {
         this.vespaVersion = vespaVersion;
         this.previousModel = previousModel;
         this.accessLoggingEnabledByDefault = accessLoggingEnabledByDefault;
-        this.provisioner = hostProvisioner.orElse(getDefaultModelHostProvisioner(applicationPackage));
+        this.provisioner = hostProvisioner.orElseGet(() -> getDefaultModelHostProvisioner(applicationPackage));
         this.provisioned = provisioned;
         this.schemas = List.copyOf(application.schemas().values());
         this.documentModel = application.documentModel();
@@ -155,6 +149,7 @@ public class DeployState implements ConfigDefinitionStore {
         this.wantedDockerImageRepo = wantedDockerImageRepo;
         this.reindexing = reindexing;
         this.onnxModelCost = onnxModelCost;
+        this.sidecarProvider = sidecarProvider;
     }
 
     public static HostProvisioner getDefaultModelHostProvisioner(ApplicationPackage applicationPackage) {
@@ -174,21 +169,25 @@ public class DeployState implements ConfigDefinitionStore {
     /** Returns the validation overrides of this. This is never null. */
     public ValidationOverrides validationOverrides() { return validationOverrides; }
 
+    public boolean warnOnlyOnValidationFailure() {
+        return isHosted() && zone().environment().isManuallyDeployed();
+    }
+
     @Override
     public final Optional<ConfigDefinition> getConfigDefinition(ConfigDefinitionKey defKey) {
-        if (existingConfigDefs == null) {
-            existingConfigDefs = new LinkedHashMap<>();
-            configDefinitionRepo.ifPresent(definitionRepo -> existingConfigDefs.putAll(createLazyMapping(definitionRepo)));
-            existingConfigDefs.putAll(applicationPackage.getAllExistingConfigDefs());
+        if (configDefinitionSuppliers == null) {
+            configDefinitionSuppliers = new LinkedHashMap<>();
+            configDefinitionRepo.ifPresent(definitionRepo -> configDefinitionSuppliers.putAll(createLazyMapping(definitionRepo)));
+            configDefinitionSuppliers.putAll(applicationPackage.getAllExistingConfigDefs());
         }
-        if ( ! existingConfigDefs.containsKey(defKey)) return Optional.empty();
+        if ( ! configDefinitionSuppliers.containsKey(defKey)) return Optional.empty();
 
-        if (defArchive.get(defKey) != null)
-            return Optional.of(defArchive.get(defKey));
+        if (configDefinitionCache.get(defKey) != null)
+            return Optional.of(configDefinitionCache.get(defKey));
 
-        ConfigDefinition def = existingConfigDefs.get(defKey).parse();
+        ConfigDefinition def = configDefinitionSuppliers.get(defKey).parse();
 
-        defArchive.put(defKey, def);
+        configDefinitionCache.put(defKey, def);
         return Optional.of(def);
     }
 
@@ -225,10 +224,10 @@ public class DeployState implements ConfigDefinitionStore {
     private final RankProfileRegistry rankProfileRegistry;
 
     // Mapping from key to something that can create a config definition.
-    private Map<ConfigDefinitionKey, UnparsedConfigDefinition> existingConfigDefs = null;
+    private Map<ConfigDefinitionKey, UnparsedConfigDefinition> configDefinitionSuppliers = null;
 
     // Cache of config definitions looked up so far.
-    private final Map<ConfigDefinitionKey, ConfigDefinition> defArchive = new LinkedHashMap<>();
+    private final Map<ConfigDefinitionKey, ConfigDefinition> configDefinitionCache = new LinkedHashMap<>();
 
     public ApplicationPackage getApplicationPackage() {
         return applicationPackage;
@@ -310,9 +309,17 @@ public class DeployState implements ConfigDefinitionStore {
 
     public OnnxModelCost onnxModelCost() { return onnxModelCost; }
 
+    /** Returns the sidecar provider to consult when building container clusters, if any. */
+    public Optional<SidecarProvider> getSidecarProvider() { return sidecarProvider; }
+
     public boolean isHostedTenantApplication(ApplicationType type) {
         boolean isTesterApplication = getProperties().applicationId().instance().isTester();
-        return isHosted() && type == ApplicationType.DEFAULT && !isTesterApplication;
+        return isHosted() && type == ApplicationType.DEFAULT && !isTesterApplication
+                && !zone().system().isKubernetesLike();
+    }
+
+    public List<AzName> availabilityZones(InstanceName instance) {
+        return applicationPackage.getDeploymentSpec().availabilityZones(instance, zone);
     }
 
     public static class Builder {
@@ -323,7 +330,7 @@ public class DeployState implements ConfigDefinitionStore {
         private DeployLogger logger = new BaseDeployLogger();
         private Optional<HostProvisioner> hostProvisioner = Optional.empty();
         private Provisioned provisioned = new Provisioned();
-        private ModelContext.Properties properties = new TestProperties();
+        private ModelContext.Properties properties = null;
         private Version version = new Version(1, 0, 0);
         private Optional<ConfigDefinitionRepo> configDefinitionRepo = Optional.empty();
         private Optional<Model> previousModel = Optional.empty();
@@ -339,6 +346,8 @@ public class DeployState implements ConfigDefinitionStore {
         private Reindexing reindexing = null;
         private Optional<ValidationOverrides> validationOverrides = Optional.empty();
         private OnnxModelCost onnxModelCost = OnnxModelCost.disabled();
+        private Optional<SidecarProvider> sidecarProvider = Optional.empty();
+        private List<NamedReader> additionalSchemas = List.of();
 
         public Builder() {}
 
@@ -458,6 +467,16 @@ public class DeployState implements ConfigDefinitionStore {
 
         public Builder onnxModelCost(OnnxModelCost instance) { this.onnxModelCost = instance; return this; }
 
+        public Builder sidecarProvider(SidecarProvider sidecarProvider) {
+            this.sidecarProvider = Optional.of(sidecarProvider);
+            return this;
+        }
+
+        public Builder additionalSchemas(List<NamedReader> schemas) {
+            this.additionalSchemas = List.copyOf(schemas);
+            return this;
+        }
+
         public DeployState build() {
             return build(new ValidationParameters());
         }
@@ -466,9 +485,10 @@ public class DeployState implements ConfigDefinitionStore {
             if (queryProfiles == null)
                 queryProfiles = new QueryProfilesBuilder().build(applicationPackage, logger);
             SemanticRules semanticRules = new SemanticRuleBuilder().build(applicationPackage);
-            Application application = new ApplicationBuilder(applicationPackage, fileRegistry, logger, properties,
-                                                             rankProfileRegistry, queryProfiles.getRegistry())
-                    .build(! validationParameters.ignoreValidationErrors());
+            ApplicationBuilder applicationBuilder = new ApplicationBuilder(applicationPackage, fileRegistry, logger, properties,
+                                                                            rankProfileRegistry, queryProfiles.getRegistry());
+            additionalSchemas.forEach(applicationBuilder::addSchema);
+            Application application = applicationBuilder.build(! validationParameters.ignoreValidationErrors());
             return new DeployState(application,
                                    rankProfileRegistry,
                                    fileRegistry,
@@ -491,7 +511,8 @@ public class DeployState implements ConfigDefinitionStore {
                                    wantedDockerImageRepo,
                                    reindexing,
                                    validationOverrides,
-                                   onnxModelCost);
+                                   onnxModelCost,
+                                   sidecarProvider);
         }
 
     }

@@ -44,7 +44,7 @@ struct HtmlStatusReporter : public StatusReporter {
     virtual void reportHtmlFooter(std::ostream&, const HttpUrlPath&) const;
 
     // Implementation of StatusReporter interface
-    vespalib::string getReportContentType(const HttpUrlPath&) const override;
+    std::string getReportContentType(const HttpUrlPath&) const override;
     bool reportStatus(std::ostream&, const HttpUrlPath&) const override;
 };
 
@@ -54,10 +54,9 @@ struct HtmlStatusReporter : public StatusReporter {
  * the HTML headers and footers when needed.
  */
 struct PartlyHtmlStatusReporter : public HtmlStatusReporter {
-    PartlyHtmlStatusReporter(const StatusReporter& main)
-        : HtmlStatusReporter(main.getId(), main.getName()) {}
+    PartlyHtmlStatusReporter(const StatusReporter& main) : HtmlStatusReporter(main.getId(), main.getName()) {}
 
     void reportHtmlStatus(std::ostream&, const HttpUrlPath&) const override {}
 };
 
-}
+} // namespace storage::framework

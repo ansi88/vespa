@@ -4,14 +4,17 @@
 #include "persistence_operation_metric_set.h"
 #include "update_metric_set.h"
 #include "visitormetricsset.h"
+
 #include <vespa/metrics/common/memory_usage_metrics.h>
 
-namespace vespalib { class MemoryUsage; }
+namespace vespalib {
+class MemoryUsage;
+}
 
 namespace storage::distributor {
 
 struct BucketDbMetrics : metrics::MetricSet {
-    BucketDbMetrics(const vespalib::string& db_type, metrics::MetricSet* owner);
+    BucketDbMetrics(const std::string& db_type, metrics::MetricSet* owner);
     ~BucketDbMetrics() override;
 
     metrics::MemoryUsageMetrics memory_usage;
@@ -38,6 +41,7 @@ public:
     metrics::DoubleAverageMetric  recoveryModeTime;
     metrics::LongValueMetric      docsStored;
     metrics::LongValueMetric      bytesStored;
+    metrics::LongValueMetric      mutatating_op_memory_usage;
     BucketDbMetrics               mutable_dbs;
     BucketDbMetrics               read_only_dbs;
 
@@ -45,5 +49,4 @@ public:
     ~DistributorMetricSet() override;
 };
 
-}
-
+} // namespace storage::distributor

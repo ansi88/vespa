@@ -8,23 +8,22 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
-namespace document { class Document; }
+namespace document {
+class Document;
+}
 namespace storage::spi {
 
-class DocumentSelection
-{
-    vespalib::string _documentSelection;
- public:
-    explicit DocumentSelection(const vespalib::string& docSel)
-        : _documentSelection(docSel) {}
+class DocumentSelection {
+    std::string _documentSelection;
+
+public:
+    explicit DocumentSelection(const std::string& docSel) : _documentSelection(docSel) {}
 
     bool match(const document::Document&) const { return true; }
 
-    const vespalib::string& getDocumentSelection() const {
-        return _documentSelection;
-    }
+    const std::string& getDocumentSelection() const { return _documentSelection; }
 };
 
-}
+} // namespace storage::spi

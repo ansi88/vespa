@@ -1,9 +1,12 @@
 # Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
+
+vespa_compile_flag_for(proto_rpc_adapter_test.cpp "-Wno-inline")
+
 vespa_add_executable(searchlib_engine_proto_rpc_adapter_test_app TEST
     SOURCES
     proto_rpc_adapter_test.cpp
     DEPENDS
     vespa_searchlib
-    GTest::GTest
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_engine_proto_rpc_adapter_test_app COMMAND searchlib_engine_proto_rpc_adapter_test_app)

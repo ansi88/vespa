@@ -3,26 +3,27 @@
 
 #include <vespa/vespalib/crypto/openssl_typedefs.h>
 #include <vespa/vespalib/net/socket_address.h>
+#include <vespa/vespalib/net/tls/certificate_verification_callback.h>
 #include <vespa/vespalib/net/tls/tls_context.h>
 #include <vespa/vespalib/net/tls/transport_security_options.h>
-#include <vespa/vespalib/net/tls/certificate_verification_callback.h>
-#include <vespa/vespalib/stllike/string.h>
 
 #include <chrono>
+#include <string>
 
 namespace vespalib::net::tls::impl {
 
 class OpenSslCryptoCodecImpl;
 
 class OpenSslTlsContextImpl : public TlsContext {
-    crypto::SslCtxPtr _ctx;
-    AuthorizationMode _authorization_mode;
+    crypto::SslCtxPtr                                _ctx;
+    AuthorizationMode                                _authorization_mode;
     std::shared_ptr<CertificateVerificationCallback> _cert_verify_callback;
-    TransportSecurityOptions _redacted_transport_options;
+    TransportSecurityOptions                         _redacted_transport_options;
+
 public:
-    OpenSslTlsContextImpl(const TransportSecurityOptions& ts_opts,
+    OpenSslTlsContextImpl(const TransportSecurityOptions&                  ts_opts,
                           std::shared_ptr<CertificateVerificationCallback> cert_verify_callback,
-                          AuthorizationMode authz_mode);
+                          AuthorizationMode                                authz_mode);
     ~OpenSslTlsContextImpl() override;
 
     ::SSL_CTX* native_context() const noexcept { return _ctx.get(); }
@@ -30,6 +31,7 @@ public:
         return _redacted_transport_options;
     }
     AuthorizationMode authorization_mode() const noexcept override { return _authorization_mode; }
+
 private:
     // Note: single use per instance; does _not_ clear existing chain!
     void add_certificate_authorities(std::string_view ca_pem);
@@ -47,11 +49,11 @@ private:
     void disable_session_resumption();
     void enforce_peer_certificate_verification();
     void set_ssl_ctx_self_reference();
-    void set_accepted_cipher_suites(const std::vector<vespalib::string>& ciphers);
+    void set_accepted_cipher_suites(const std::vector<std::string>& ciphers);
 
     bool verify_trusted_certificate(::X509_STORE_CTX* store_ctx, OpenSslCryptoCodecImpl& codec_impl);
 
     static int verify_cb_wrapper(int preverified_ok, ::X509_STORE_CTX* store_ctx);
 };
 
-}
+} // namespace vespalib::net::tls::impl

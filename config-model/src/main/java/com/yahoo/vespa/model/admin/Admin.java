@@ -6,10 +6,12 @@ import com.yahoo.cloud.config.SlobroksConfig;
 import com.yahoo.cloud.config.ZookeepersConfig;
 import com.yahoo.cloud.config.log.LogdConfig;
 import com.yahoo.config.model.ConfigModelContext.ApplicationType;
+import com.yahoo.config.model.api.ModelContext.FeatureFlags;
 import com.yahoo.config.model.deploy.DeployState;
 import com.yahoo.config.model.producer.AnyConfigProducer;
 import com.yahoo.config.model.producer.TreeConfigProducer;
 import com.yahoo.config.provision.ClusterSpec;
+import com.yahoo.config.provision.TelemetryExporterConfiguration;
 import com.yahoo.container.logging.LevelsModSpec;
 import com.yahoo.vespa.model.AbstractService;
 import com.yahoo.vespa.model.ConfigProxy;
@@ -61,11 +63,23 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
     private LogForwarder.Config logForwarderConfig = null;
     private boolean logForwarderIncludeAdmin = false;
 
+    private TelemetryExporterConfiguration telemetryExporterConfiguration = null;
+
     private final ApplicationType applicationType;
 
     public void setLogForwarderConfig(LogForwarder.Config cfg, boolean includeAdmin) {
         this.logForwarderConfig = cfg;
         this.logForwarderIncludeAdmin = includeAdmin;
+    }
+
+    public void setTelemetryExporterConfiguration(TelemetryExporterConfiguration telemetryExporterConfiguration) {
+        this.telemetryExporterConfiguration = telemetryExporterConfiguration;
+    }
+
+    public TelemetryExporterConfiguration telemetryExporterConfiguration() {
+        return telemetryExporterConfiguration == null
+                ? TelemetryExporterConfiguration.empty()
+                : telemetryExporterConfiguration;
     }
 
     private final List<LogctlSpec> logctlSpecs = new ArrayList<>();
@@ -81,13 +95,15 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
 
     private ZooKeepersConfigProvider zooKeepersConfigProvider;
     private final boolean multitenant;
+    private final FeatureFlags featureFlags;
 
     public Admin(TreeConfigProducer<AnyConfigProducer> parent,
                  Monitoring monitoring,
                  Metrics metrics,
                  boolean multitenant,
                  boolean isHostedVespa,
-                 ApplicationType applicationType) {
+                 ApplicationType applicationType,
+                 FeatureFlags featureFlags) {
         super(parent, "admin");
         this.isHostedVespa = isHostedVespa;
         this.monitoring = monitoring;
@@ -95,6 +111,7 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
         this.multitenant = multitenant;
         this.applicationType = applicationType;
         this.logctlSpecs.addAll(defaultLogctlSpecs());
+        this.featureFlags = featureFlags;
     }
 
     public Configserver getConfigserver() { return defaultConfigserver; }
@@ -144,7 +161,7 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
 
     public void addConfigservers(List<Configserver> configservers) {
         this.configservers.addAll(configservers);
-        if (this.configservers.size() > 0) {
+        if ( ! this.configservers.isEmpty()) {
             this.defaultConfigserver = configservers.get(0);
         }
         this.zooKeepersConfigProvider = new ZooKeepersConfigProvider(configservers);
@@ -193,15 +210,18 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
     }
 
     public void getConfig(LogdConfig.Builder builder) {
+        var forwardAllLogLevels = isHostedVespa && featureFlags.forwardAllLogLevels();
         if (logserver == null) {
             builder.logserver(new LogdConfig.Logserver.Builder().use(false));
         }
         else {
-            builder.
-                logserver(new LogdConfig.Logserver.Builder().
+            builder.logserver(new LogdConfig.Logserver.Builder().
                         use(logServerContainerCluster.isPresent() || !isHostedVespa).
                         host(logserver.getHostName()).
-                        rpcport(logserver.getRelativePort(0)));
+                        rpcport(logserver.getRelativePort(0)))
+                    .loglevel(new LogdConfig.Loglevel.Builder().
+                            debug(new LogdConfig.Loglevel.Debug.Builder().forward(forwardAllLogLevels)).
+                            spam(new LogdConfig.Loglevel.Spam.Builder().forward(forwardAllLogLevels)));
         }
      }
 
@@ -254,7 +274,7 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
             boolean actuallyAdd = true;
             var membership = host.spec().membership();
             if (membership.isPresent()) {
-                var clustertype = membership.get().cluster().type();
+                var clustertype = membership.get().type();
                 // XXX should skip only if this.isHostedVespa is true?
                 if (clustertype == ClusterSpec.Type.admin) {
                     actuallyAdd = logForwarderIncludeAdmin;
@@ -268,7 +288,7 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
 
     private void addConfigSentinel(DeployState deployState, HostResource host)
     {
-        ConfigSentinel configSentinel = new ConfigSentinel(host.getHost(), deployState.getProperties().applicationId(), deployState.zone());
+        ConfigSentinel configSentinel = new ConfigSentinel(host.getHost(), deployState);
         addAndInitializeService(deployState, host, configSentinel);
         host.getHost().setConfigSentinel(configSentinel);
     }
@@ -336,6 +356,7 @@ public class Admin extends TreeConfigProducer<AnyConfigProducer> implements Seri
         return List.of(new LogctlSpec("com.yahoo.vespa.spifly.repackaged.spifly.BaseActivator", getLevelModSpec("-info")),
                        new LogctlSpec("org.eclipse.jetty.server.Server", getLevelModSpec("-info")),
                        new LogctlSpec("org.eclipse.jetty.server.handler.ContextHandler", getLevelModSpec("-info")),
+                       new LogctlSpec("org.eclipse.jetty.server.handler.ErrorHandler", getLevelModSpec("-info -warning")),
                        new LogctlSpec("org.eclipse.jetty.server.AbstractConnector", getLevelModSpec("-info")));
     }
 

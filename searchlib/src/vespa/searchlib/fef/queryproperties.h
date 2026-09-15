@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace search {
 namespace fef {
@@ -21,22 +21,21 @@ namespace fef {
 namespace queryproperties {
 
 namespace now {
-    /**
-     * Property indicating the time to be used for time-sensitive
-     * relevancy computations. This affects the value returned by the
-     * global feature 'now'. The time is given in seconds since epoch.
-     **/
-    struct SystemTime {
+/**
+ * Property indicating the time to be used for time-sensitive
+ * relevancy computations. This affects the value returned by the
+ * global feature 'now'. The time is given in seconds since epoch.
+ **/
+struct SystemTime {
 
-        /**
-         * Property name.
-         **/
-        static const vespalib::string NAME;
-    };
+    /**
+     * Property name.
+     **/
+    static const std::string NAME;
+};
 
 } // namespace now
 
 } // namespace queryproperties
 } // namespace fef
 } // namespace search
-

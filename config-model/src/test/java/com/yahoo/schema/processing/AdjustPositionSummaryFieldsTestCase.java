@@ -9,7 +9,12 @@ import com.yahoo.vespa.documentmodel.SummaryField;
 import com.yahoo.vespa.documentmodel.SummaryTransform;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class AdjustPositionSummaryFieldsTestCase {
 
@@ -19,8 +24,22 @@ public class AdjustPositionSummaryFieldsTestCase {
         model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, "pos");
         model.resolve();
         model.assertSummaryField("my_pos", PositionDataType.INSTANCE, SummaryTransform.GEOPOS, "pos_zcurve");
-        model.assertSummaryField("my_pos.position", DataType.getArray(DataType.STRING), SummaryTransform.POSITIONS, "pos_zcurve");
-        model.assertSummaryField("my_pos.distance", DataType.INT, SummaryTransform.DISTANCE, "pos_zcurve");
+        model.assertNoSummaryField("my_pos.position");
+        model.assertNoSummaryField("my_pos.distance");
+    }
+
+    @Test
+    void test_pos_summary_sourced_from_original_and_from_zcurve_field() {
+        // Two summary fields in the same schema, resolving the z-curve attribute name via the
+        // two different branches in scanSummary(): "my_pos" has the position field itself as
+        // source (name -> name + "_zcurve"), while "my_pos2" has the z-curve attribute field
+        // itself as source (name already ends with "_zcurve", so it is used as-is).
+        SearchModel model = new SearchModel(false);
+        model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, "pos");
+        model.addSummaryField("my_pos2", PositionDataType.INSTANCE, null, "pos_zcurve");
+        model.resolve();
+        model.assertSummaryField("my_pos", PositionDataType.INSTANCE, SummaryTransform.GEOPOS, "pos_zcurve");
+        model.assertSummaryField("my_pos2", PositionDataType.INSTANCE, SummaryTransform.GEOPOS, "pos_zcurve");
     }
 
     @Test
@@ -29,8 +48,8 @@ public class AdjustPositionSummaryFieldsTestCase {
         model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, null);
         model.resolve();
         model.assertSummaryField("my_pos", PositionDataType.INSTANCE, SummaryTransform.GEOPOS, "my_pos_zcurve");
-        model.assertSummaryField("my_pos.position", DataType.getArray(DataType.STRING), SummaryTransform.POSITIONS, "my_pos_zcurve");
-        model.assertSummaryField("my_pos.distance", DataType.INT, SummaryTransform.DISTANCE, "my_pos_zcurve");
+        model.assertNoSummaryField("my_pos.position");
+        model.assertNoSummaryField("my_pos.distance");
     }
 
     @Test
@@ -77,8 +96,8 @@ public class AdjustPositionSummaryFieldsTestCase {
         model.addSummaryField("pos", PositionDataType.INSTANCE, null, "pos");
         model.resolve();
         model.assertSummaryField("pos", PositionDataType.INSTANCE, SummaryTransform.GEOPOS, "pos_zcurve");
-        model.assertSummaryField("pos.position", DataType.getArray(DataType.STRING), SummaryTransform.POSITIONS, "pos_zcurve");
-        model.assertSummaryField("pos.distance", DataType.INT, SummaryTransform.DISTANCE, "pos_zcurve");
+        model.assertNoSummaryField("pos.position");
+        model.assertNoSummaryField("pos.distance");
     }
 
     @Test
@@ -123,42 +142,6 @@ public class AdjustPositionSummaryFieldsTestCase {
                 + "No position attribute 'my_pos_zcurve'"));
     }
 
-    @Test
-    void test_my_pos_position_summary_bad_datatype() {
-        Throwable exception = assertThrows(IllegalArgumentException.class, () -> {
-            SearchModel model = new SearchModel();
-            model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, null);
-            model.addSummaryField("my_pos.position", DataType.STRING, null, "pos");
-            model.resolve();
-        });
-        assertTrue(exception.getMessage().contains("For schema 'child', field 'my_pos.position': "
-                + "exists with type 'datatype string (code: 2)', should be of type 'datatype Array<string> (code: -1486737430)"));
-    }
-
-    @Test
-    void test_my_pos_position_summary_bad_transform() {
-        Throwable exception = assertThrows(IllegalArgumentException.class, () -> {
-            SearchModel model = new SearchModel();
-            model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, null);
-            model.addSummaryField("my_pos.position", DataType.getArray(DataType.STRING), null, "pos");
-            model.resolve();
-        });
-        assertTrue(exception.getMessage().contains("For schema 'child', field 'my_pos.position': "
-                + "has summary transform 'none', should have transform 'positions'"));
-    }
-
-    @Test
-    void test_my_pos_position_summary_bad_source() {
-        Throwable exception = assertThrows(IllegalArgumentException.class, () -> {
-            SearchModel model = new SearchModel();
-            model.addSummaryField("my_pos", PositionDataType.INSTANCE, null, null);
-            model.addSummaryField("my_pos.position", DataType.getArray(DataType.STRING), SummaryTransform.POSITIONS, "pos");
-            model.resolve();
-        });
-        assertTrue(exception.getMessage().contains("For schema 'child', field 'my_pos.position': "
-                + "has source '[source field 'pos']', should have source 'source field 'my_pos_zcurve''"));
-    }
-
     static class SearchModel extends ParentChildSearchModel {
 
         SearchModel() {
@@ -201,7 +184,7 @@ public class AdjustPositionSummaryFieldsTestCase {
                 summary = new DocumentSummary(summaryName, childSchema);
                 childSchema.addSummary(summary);
             }
-            SummaryField summaryField = new SummaryField(fieldName, dataType);
+            SummaryField summaryField = new SummaryField(fieldName, dataType, summary);
             if (source != null) {
                 summaryField.addSource(source);
             }

@@ -1,5 +1,7 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
-syntax = "proto3";
+edition = "2023";
+// Preserve proto3 default field presence semantics
+option features.field_presence = IMPLICIT;
 
 option cc_enable_arenas = true;
 
@@ -7,8 +9,13 @@ package storage.mbusprot.protobuf;
 
 import "common.proto";
 
+import "google/protobuf/cpp_features.proto";
+option features.(pb.cpp).string_type = VIEW;
+
 message TestAndSetCondition {
     bytes selection = 1;
+    // Iff non-zero, `selection` is ignored in favor of _only_ checking the timestamp.
+    uint64 required_timestamp = 2;
 }
 
 message PutRequest {

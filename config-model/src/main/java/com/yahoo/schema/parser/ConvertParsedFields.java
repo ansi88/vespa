@@ -1,8 +1,11 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.schema.parser;
 
+import com.yahoo.config.model.api.ModelContext;
 import com.yahoo.document.DataType;
+import com.yahoo.document.MapDataType;
 import com.yahoo.schema.document.GeoPos;
+import com.yahoo.schema.document.QuantizationParams;
 import com.yahoo.schema.parser.ConvertParsedTypes.TypeResolver;
 import com.yahoo.schema.Index;
 import com.yahoo.schema.Schema;
@@ -16,6 +19,7 @@ import com.yahoo.schema.document.SDDocumentType;
 import com.yahoo.schema.document.SDField;
 import com.yahoo.schema.document.Sorting;
 import com.yahoo.schema.document.annotation.SDAnnotationType;
+import com.yahoo.vespa.documentmodel.SummaryElementsSelector;
 import com.yahoo.vespa.documentmodel.SummaryField;
 import com.yahoo.vespa.documentmodel.SummaryTransform;
 
@@ -24,31 +28,42 @@ import java.util.Map;
 import java.util.logging.Level;
 
 /**
- * Helper for converting ParsedField etc to SDField with settings
+ * Helper for converting ParsedField etc. to SDField with settings
  *
  * @author arnej27959
- **/
+ */
 public class ConvertParsedFields {
 
     private final TypeResolver context;
     private final Map<String, SDDocumentType> structProxies;
-    
-    ConvertParsedFields(TypeResolver context, Map<String, SDDocumentType> structProxies) {
+    private final ModelContext.Properties properties;
+
+    ConvertParsedFields(TypeResolver context, Map<String, SDDocumentType> structProxies,
+                        ModelContext.Properties properties) {
         this.context = context;
         this.structProxies = structProxies;
+        this.properties = properties;
+    }
+
+    static void caseHandling(SDField field, Case casing) {
+        field.setMatchingCase(casing);
+        if (casing == Case.CASED) {
+            var dictionary = field.getOrSetDictionary();
+            dictionary.updateMatch(casing);
+        }
     }
 
     static void convertMatchSettings(SDField field, ParsedMatchSettings parsed) {
         parsed.getMatchType().ifPresent(matchingType -> field.setMatchingType(matchingType));
-        parsed.getMatchCase().ifPresent(casing -> field.setMatchingCase(casing));
+        parsed.getMatchCase().ifPresent(casing -> caseHandling(field, casing));
         parsed.getGramSize().ifPresent(gramSize -> field.getMatching().setGramSize(gramSize));
         parsed.getMaxLength().ifPresent(maxLength -> field.getMatching().maxLength(maxLength));
         parsed.getMaxTermOccurrences().ifPresent(maxTermOccurrences -> field.getMatching().maxTermOccurrences(maxTermOccurrences));
         parsed.getMaxTokenLength().ifPresent(maxTokenLength -> field.getMatching().maxTokenLength(maxTokenLength));
         parsed.getMatchAlgorithm().ifPresent
-            (matchingAlgorithm -> field.setMatchingAlgorithm(matchingAlgorithm));
+                (matchingAlgorithm -> field.setMatchingAlgorithm(matchingAlgorithm));
         parsed.getExactTerminator().ifPresent
-            (exactMatchTerminator -> field.getMatching().setExactMatchTerminator(exactMatchTerminator));
+                (exactMatchTerminator -> field.getMatching().setExactMatchTerminator(exactMatchTerminator));
     }
 
     void convertSorting(Schema schema, SDField field, ParsedSorting parsed, String name) {
@@ -69,6 +84,10 @@ public class ConvertParsedFields {
     }
 
     void convertAttribute(Schema schema, SDField field, ParsedAttribute parsed) {
+        if (GeoPos.isAnyPos(field.getDataType())) {
+            convertPositionAttribute(schema, field, parsed);
+            return;
+        }
         String name = parsed.name();
         String fieldName = field.getName();
         Attribute attribute = null;
@@ -90,6 +109,9 @@ public class ConvertParsedFields {
         attribute.setFastAccess(parsed.getFastAccess());
         attribute.setMutable(parsed.getMutable());
         attribute.setEnableOnlyBitVector(parsed.getEnableOnlyBitVector());
+        if (parsed.hasQuantization()) {
+            attribute.setQuantizationParams(QuantizationParams.ofBits(parsed.quantization().bits()));
+        }
 
         // attribute.setTensorType(?)
 
@@ -106,6 +128,45 @@ public class ConvertParsedFields {
         if (sorting.isPresent()) {
             convertSorting(schema, field, sorting.get(), name);
         }
+    }
+
+    private void convertPositionAttribute(Schema schema, SDField field, ParsedAttribute parsed) {
+        String fieldName = field.getName();
+
+        // Attribute settings on a position field only make sense if the field actually does attributing
+        if (!field.doesAttributing()) {
+            throw new IllegalArgumentException("For schema '" + schema.getName() +
+                "', field '" + fieldName + "': attribute properties require 'attribute' in the indexing statement");
+        }
+
+        // Reject renamed attributes — position fields only support the default attribute block
+        if (!parsed.name().equals(fieldName)) {
+            throw new IllegalArgumentException("For schema '" + schema.getName() +
+                "', field '" + fieldName + "': position fields do not support named attribute '" + parsed.name() + "'");
+        }
+
+        // Reject settings that are nonsensical or unsupported for position fields
+        if (parsed.getFastRank() || parsed.getMutable() || parsed.getEnableOnlyBitVector()
+                || parsed.getDistanceMetric().isPresent() || parsed.getSorting().isPresent()
+                || !parsed.getAliases().isEmpty()) {
+            throw new IllegalArgumentException("For schema '" + schema.getName() +
+                "', field '" + fieldName + "': position fields only support 'fast-search', 'fast-access', and 'paged' attribute settings");
+        }
+
+        // If only fast-search or empty: no-op. CreatePositionZCurve already sets fast-search on the zcurve attribute.
+        // Avoid creating an Attribute here so AttributesImplicitWord (which runs before CreatePositionZCurve) does not
+        // see a non-empty attributes map and flip this field to WORD matching.
+        if (!parsed.getFastAccess() && !parsed.getPaged()) {
+            return;
+        }
+
+        // Create a temporary Attribute to carry fast-access/paged to CreatePositionZCurve
+        boolean isArray = GeoPos.isPosArray(field.getDataType());
+        Attribute attribute = new Attribute(fieldName, Attribute.Type.LONG,
+            isArray ? Attribute.CollectionType.ARRAY : Attribute.CollectionType.SINGLE);
+        attribute.setFastAccess(parsed.getFastAccess());
+        attribute.setPaged(parsed.getPaged());
+        field.addAttribute(attribute);
     }
 
     private void convertRankType(SDField field, String indexName, String rankType) {
@@ -142,7 +203,11 @@ public class ConvertParsedFields {
 
     // from grammar, things that can be inside struct-field block
     private void convertCommonFieldSettings(Schema schema, SDField field, ParsedField parsed) {
-        convertMatchSettings(field, parsed.matchSettings());
+        try {
+            convertMatchSettings(field, parsed.matchSettings());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("For schema '" + schema.getName() + "', field '" + field.getName() + "': " + e.getMessage());
+        }
         var indexing = parsed.getIndexing();
         if (indexing.isPresent()) {
             field.setIndexingScript(schema.getName(), indexing.get().script());
@@ -153,6 +218,10 @@ public class ConvertParsedFields {
         parsed.getWeight().ifPresent(value -> field.setWeight(value));
         parsed.getStemming().ifPresent(value -> field.setStemming(value));
         parsed.getNormalizing().ifPresent(value -> convertNormalizing(field, value));
+        parsed.getIndexLinguisticsProfile().ifPresent(value -> field.setIndexLinguisticsProfile(value));
+        parsed.getSearchLinguisticsProfile().ifPresent(value -> field.setSearchLinguisticsProfile(value));
+        parsed.getIndexLinguisticsTokens().ifPresent(value -> field.setIndexLinguisticsTokens(value));
+        parsed.getSearchLinguisticsTokens().ifPresent(value -> field.setSearchLinguisticsTokens(value));
         for (var attribute : parsed.getAttributes()) {
             convertAttribute(schema, field, attribute);
         }
@@ -167,7 +236,7 @@ public class ConvertParsedFields {
                         " Remove the type specification to silence this warning.");
                 dataType = context.resolveType(otherType);
             }
-            convertSummaryField(field, summaryField, dataType);
+            convertSummaryField(schema, field, summaryField, dataType);
         }
         for (String command : parsed.getQueryCommands()) {
             field.addQueryCommand(command);
@@ -184,6 +253,48 @@ public class ConvertParsedFields {
         if (parsed.hasNormal()) {
             field.getRanking().setNormal(true);
         }
+        if (parsed.getFastMapSearch()) {
+            convertFastMapSearch(schema, field);
+        }
+    }
+
+    private void convertFastMapSearch(Schema schema, SDField field) {
+        if (!(field.getDataType() instanceof MapDataType mapType)) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "For schema '%s', field '%s': 'map: fast-search' requires a map field, but the type is %s.",
+                            schema.getName(),
+                            field.getName(),
+                            field.getDataType().getName()));
+        }
+        validateFastMapSubtype(schema, field, mapType.getKeyType(), "key");
+        validateFastMapSubtype(schema, field, mapType.getValueType(), "value");
+        if (!properties.featureFlags().fastMapSearch()) {
+            throw new IllegalArgumentException(
+                    String.format("For schema '%s', field '%s': 'map: fast-search' is an unfinished feature that " +
+                                  "will not be enabled yet. Please remove this property from the field.",
+                                  schema.getName(),
+                                  field.getName()));
+        }
+        field.setFastMapSearch(true);
+    }
+
+    private void validateFastMapSubtype(Schema schema, SDField field, DataType type, String keyOrValue) {
+        if (!isSupportedFastMapKeyValueType(type)) {
+            throw new IllegalArgumentException(
+                    String.format(
+                            "For schema '%s', field '%s': 'map: fast-search' requires %s to be of type string, int or long, but the type is %s.",
+                            schema.getName(),
+                            field.getName(),
+                            keyOrValue,
+                            type.getName()));
+        }
+    }
+
+    private boolean isSupportedFastMapKeyValueType(DataType dataType) {
+        return dataType.equals(DataType.STRING)
+                || dataType.equals(DataType.INT)
+                || dataType.equals(DataType.LONG);
     }
 
     private void convertStructField(Schema schema, SDField field, ParsedField parsed) {
@@ -199,11 +310,15 @@ public class ConvertParsedFields {
         String name = parsed.name();
         for (var dictOp : parsed.getDictionaryOptions()) {
             var dictionary = field.getOrSetDictionary();
-            switch (dictOp) {
-                case HASH -> dictionary.updateType(Dictionary.Type.HASH);
-                case BTREE -> dictionary.updateType(Dictionary.Type.BTREE);
-                case CASED -> dictionary.updateMatch(Case.CASED);
-                case UNCASED -> dictionary.updateMatch(Case.UNCASED);
+            try {
+                switch (dictOp) {
+                    case HASH -> dictionary.updateType(Dictionary.Type.HASH);
+                    case BTREE -> dictionary.updateType(Dictionary.Type.BTREE);
+                    case CASED -> dictionary.updateMatch(Case.CASED);
+                    case UNCASED -> dictionary.updateMatch(Case.UNCASED);
+                }
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("For schema '" + schema.getName() + "', field '" + name + "': " + e.getMessage());
             }
         }
         for (var index : parsed.getIndexes()) {
@@ -223,11 +338,21 @@ public class ConvertParsedFields {
         }
     }
 
-    static void convertSummaryFieldSettings(SummaryField summary, ParsedSummaryField parsed) {
+    static void convertSummaryFieldSettings(Schema schema, SummaryField summary, ParsedSummaryField parsed,
+                                            String documentSummaryName) {
         var transform = SummaryTransform.NONE;
-        if (parsed.getMatchedElementsOnly()) {
-            transform = SummaryTransform.MATCHED_ELEMENTS_FILTER;
-        } else if (parsed.getDynamic()) {
+        var selectElementsBySummaryFeature = parsed.getSelectElementsBySummaryFeature();
+        if (selectElementsBySummaryFeature.isPresent()) {
+            if (parsed.getMatchedElementsOnly()) {
+                throw new IllegalArgumentException("For schema '" + schema.getName() + "' document-summary '" +
+                    documentSummaryName + "' summary field '" + summary.getName() + "': " +
+                    "Both matched-elements-only and select-elements-by specified, this is not supported");
+            }
+            summary.setElementsSelector(SummaryElementsSelector.selectBySummaryFeature(selectElementsBySummaryFeature.get()));
+        } else if (parsed.getMatchedElementsOnly()) {
+            summary.setElementsSelector(SummaryElementsSelector.selectByMatch());
+        }
+        if (parsed.getDynamic()) {
             transform = SummaryTransform.DYNAMICTEASER;
         } else if (parsed.getTokens()) {
             transform = SummaryTransform.TOKENS;
@@ -242,12 +367,15 @@ public class ConvertParsedFields {
         for (String destination : parsed.getDestinations()) {
             summary.addDestination(destination);
         }
+        for (String structField : parsed.getStructFieldSelect()) {
+            summary.addStructField(structField);
+        }
         summary.setImplicit(false);
     }
 
-    private void convertSummaryField(SDField field, ParsedSummaryField parsed, DataType type) {
-        var summary = new SummaryField(parsed.name(), type);
-        convertSummaryFieldSettings(summary, parsed);
+    private void convertSummaryField(Schema schema, SDField field, ParsedSummaryField parsed, DataType type) {
+        var summary = new SummaryField(parsed.name(), type, field);
+        convertSummaryFieldSettings(schema, summary, parsed, "default");
         summary.addDestination("default");
         if (parsed.getSources().isEmpty()) {
             summary.addSource(field.getName());
@@ -275,7 +403,7 @@ public class ConvertParsedFields {
         var lowerBound = parsed.getLowerBound();
         var upperBound = parsed.getUpperBound();
         var densePostingListThreshold = parsed.getDensePostingListThreshold();
-        if (arity.isPresent() || 
+        if (arity.isPresent() ||
             lowerBound.isPresent() ||
             upperBound.isPresent() ||
             densePostingListThreshold.isPresent())
@@ -285,7 +413,7 @@ public class ConvertParsedFields {
         }
         parsed.getEnableBm25().ifPresent(enableBm25 -> index.setInterleavedFeatures(enableBm25));
         parsed.getHnswIndexParams().ifPresent
-            (hnswIndexParams -> index.setHnswIndexParams(hnswIndexParams));
+                (hnswIndexParams -> index.setHnswIndexParams(hnswIndexParams));
     }
 
     SDField convertDocumentField(Schema schema, SDDocumentType document, ParsedField parsed) {
@@ -343,5 +471,9 @@ public class ConvertParsedFields {
             annType.setSdDocType(structProxy);
         }
         document.addAnnotation(annType);
+        schema.getDeployLogger()
+                .log(Level.WARNING, "For schema '" + parsed.getOwnerName() +
+                     "', annotation '" + parsed.name() +
+                     "': Creating new annotations is deprecated and will be removed in the near future");
     }
 }

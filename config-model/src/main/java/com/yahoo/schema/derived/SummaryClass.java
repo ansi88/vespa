@@ -5,15 +5,23 @@ import com.yahoo.config.application.api.DeployLogger;
 import com.yahoo.document.DataType;
 import com.yahoo.prelude.fastsearch.DocsumDefinitionSet;
 import com.yahoo.schema.Schema;
+import com.yahoo.schema.document.ImmutableSDField;
 import com.yahoo.schema.processing.DynamicSummaryTransformUtils;
 import com.yahoo.vespa.config.search.SummaryConfig;
+import com.yahoo.vespa.config.search.SummaryConfig.Classes.Fields.Combiner_shape;
 import com.yahoo.vespa.documentmodel.DocumentSummary;
+import com.yahoo.vespa.documentmodel.SummaryElementsSelector;
 import com.yahoo.vespa.documentmodel.SummaryField;
 import com.yahoo.vespa.documentmodel.SummaryTransform;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
+
+import static com.yahoo.schema.document.ComplexAttributeFieldUtils.isArrayOfSimpleStruct;
+import static com.yahoo.schema.document.ComplexAttributeFieldUtils.isMapOfPrimitiveType;
+import static com.yahoo.schema.document.ComplexAttributeFieldUtils.isMapOfSimpleStruct;
 
 /**
  * A summary derived from a search definition.
@@ -44,7 +52,7 @@ public class SummaryClass extends Derived {
      * @param deployLogger a {@link DeployLogger}
      */
     public SummaryClass(Schema schema, DocumentSummary summary, DeployLogger deployLogger) {
-        super(summary.getName());
+        super(summary.name());
         this.deployLogger = deployLogger;
         this.rawAsBase64 = schema.isRawAsBase64();
         this.omitSummaryFeatures = summary.omitSummaryFeatures();
@@ -52,15 +60,16 @@ public class SummaryClass extends Derived {
         deriveFields(schema, summary, fields);
         deriveImplicitFields(summary, fields);
         this.fields = Collections.unmodifiableMap(fields);
-        this.id = deriveId(summary.getName(), fields);
+        this.id = deriveId(summary.name(), fields);
     }
 
     public int id() { return id; }
 
     /** MUST be called after all other fields are added */
     private void deriveImplicitFields(DocumentSummary summary, Map<String, SummaryClassField> fields) {
-        if (summary.getName().equals("default")) {
-            addField(SummaryClass.DOCUMENT_ID_FIELD, DataType.STRING, SummaryTransform.DOCUMENT_ID, "", fields);
+        if (summary.name().equals("default")) {
+            addField(SummaryClass.DOCUMENT_ID_FIELD, DataType.STRING, SummaryElementsSelector.selectAll(),
+                    SummaryTransform.DOCUMENT_ID, "", List.of(), Combiner_shape.INFER, fields);
         }
     }
 
@@ -69,14 +78,17 @@ public class SummaryClass extends Derived {
             if (!accessingDiskSummary && schema.isAccessingDiskSummary(summaryField)) {
                 accessingDiskSummary = true;
             }
-            addField(summaryField.getName(), summaryField.getDataType(), summaryField.getTransform(),
-                    getSource(summaryField, schema), fields);
+            addField(summaryField.getName(), summaryField.getDataType(), summaryField.getElementsSelector(), summaryField.getTransform(),
+                    getSource(summaryField, schema), summaryField.getStructFields(), getCombinerShape(summaryField, schema), fields);
         }
     }
 
     private void addField(String name, DataType type,
+                          SummaryElementsSelector elementsSelector,
                           SummaryTransform transform,
                           String source,
+                          List<String> structFields,
+                          Combiner_shape.Enum combinerShape,
                           Map<String, SummaryClassField> fields) {
         if (fields.containsKey(name)) {
             SummaryClassField sf = fields.get(name);
@@ -85,7 +97,8 @@ public class SummaryClass extends Derived {
                                                                   ". " + "Declared as type " + sf.getType() + " and " + type);
             }
         } else {
-            fields.put(name, new SummaryClassField(name, type, transform, source, rawAsBase64));
+            fields.put(name, new SummaryClassField(name, type, elementsSelector, transform, source, combinerShape,
+                                                  rawAsBase64, structFields));
         }
     }
 
@@ -114,7 +127,10 @@ public class SummaryClass extends Derived {
             classBuilder.fields(new SummaryConfig.Classes.Fields.Builder().
                     name(field.getName()).
                     command(field.getCommand()).
-                    source(field.getSource()));
+                    source(field.getSource()).
+                    struct_fields(field.getStructFields()).
+                    combiner_shape(field.getCombinerShape()).
+                    elements(convertElementsSelector(field.getElementsSelector())));
         }
         return classBuilder;
     }
@@ -128,12 +144,41 @@ public class SummaryClass extends Derived {
         return "summary class '" + getName() + "'";
     }
 
+    /**
+     * Returns which shape the attribute combiner should write for the given summary field. The shape is
+     * resolved from the source field here, rather than where the transform is set, because
+     * AdjustSummaryTransforms, ImplicitSummaries and AddDataTypeAndTransformToSummaryOfImportedFields all
+     * set ATTRIBUTECOMBINER independently of each other.
+     *
+     * INFER, which is what a source that resolves to none of the shapes gets, leaves the backend deducing
+     * the shape from the names of the struct field attributes, as it did before it could be told.
+     *
+     * When the summary field only selects some of the struct sub-fields, the shape is resolved from those,
+     * matching the eligibility check which made this an attribute combiner in the first place.
+     */
+    static Combiner_shape.Enum getCombinerShape(SummaryField summaryField, Schema schema) {
+        if (summaryField.getTransform() != SummaryTransform.ATTRIBUTECOMBINER) return Combiner_shape.INFER;
+        // The same field the backend resolves from the configured source, cf. getSource() below emitting a
+        // source only for an explicit one, and DocsumFieldWriterFactory falling back to the field name.
+        // getSingleSource() alone will not do: for an implicit summary field it is one of the struct
+        // sub-fields, since those are its sources. This is therefore not the same resolution as the one
+        // SummaryStructFieldSelectValidator makes when validating a struct field selection; see the
+        // comment there for why the difference is harmless.
+        String sourceName = summaryField.hasExplicitSingleSource() ? summaryField.getSingleSource()
+                                                                  : summaryField.getName();
+        ImmutableSDField source = schema.getField(sourceName);
+        if (source == null) return Combiner_shape.INFER;
+        var selectedFields = summaryField.getStructFields();
+        if (isArrayOfSimpleStruct(source, selectedFields)) return Combiner_shape.ARRAY_OF_STRUCT;
+        if (isMapOfSimpleStruct(source, selectedFields)) return Combiner_shape.MAP_OF_STRUCT;
+        if (isMapOfPrimitiveType(source)) return Combiner_shape.MAP_OF_SCALAR;
+        return Combiner_shape.INFER;
+    }
+
     /** Returns the command name of a transform */
     static String getCommand(SummaryTransform transform) {
         if (transform == SummaryTransform.NONE) {
             return "";
-        } else if (transform == SummaryTransform.DISTANCE) {
-            return "absdist";
         } else if (transform.isDynamic()) {
             return "dynamicteaser";
         } else {
@@ -149,11 +194,7 @@ public class SummaryClass extends Derived {
         if (summaryField.getTransform() == SummaryTransform.ATTRIBUTE ||
                 (summaryField.getTransform() == SummaryTransform.ATTRIBUTECOMBINER && summaryField.hasExplicitSingleSource()) ||
                 summaryField.getTransform() == SummaryTransform.COPY ||
-                summaryField.getTransform() == SummaryTransform.DISTANCE ||
                 summaryField.getTransform() == SummaryTransform.GEOPOS ||
-                summaryField.getTransform() == SummaryTransform.POSITIONS ||
-                summaryField.getTransform() == SummaryTransform.MATCHED_ELEMENTS_FILTER ||
-                summaryField.getTransform() == SummaryTransform.MATCHED_ATTRIBUTE_ELEMENTS_FILTER ||
                 summaryField.getTransform() == SummaryTransform.TOKENS ||
                 summaryField.getTransform() == SummaryTransform.ATTRIBUTE_TOKENS)
         {
@@ -165,14 +206,35 @@ public class SummaryClass extends Derived {
         }
     }
 
+    static SummaryConfig.Classes.Fields.Elements.Builder convertElementsSelector(SummaryElementsSelector elementsSelector) {
+        var builder = new SummaryConfig.Classes.Fields.Elements.Builder();
+        switch (elementsSelector.getSelect()) {
+            case ALL -> builder.select(SummaryConfig.Classes.Fields.Elements.Select.ALL);
+            case BY_MATCH -> builder.select(SummaryConfig.Classes.Fields.Elements.Select.BY_MATCH);
+            case BY_SUMMARY_FEATURE -> builder.select(SummaryConfig.Classes.Fields.Elements.Select.BY_SUMMARY_FEATURE);
+        }
+        builder.summary_feature(elementsSelector.getSummaryFeature());
+        return builder;
+    }
+
     /**
      * A dynamic transform that needs the query to perform its computations.
      * We need this because some model information is shared through configs instead of model - see usage
      */
     static boolean commandRequiringQuery(String commandName) {
-        return (commandName.equals("dynamicteaser") ||
-                commandName.equals(SummaryTransform.MATCHED_ELEMENTS_FILTER.getName()) ||
-                commandName.equals(SummaryTransform.MATCHED_ATTRIBUTE_ELEMENTS_FILTER.getName()));
+        return (commandName.equals("dynamicteaser"));
+    }
+
+    /**
+     * An elements selector that needs the query to perform its computations.
+     * We need this because some model information is shared through configs instead of model - see usage
+     */
+    static boolean elementsSelectorRequiringQuery(SummaryElementsSelector elementsSelector) {
+        return switch (elementsSelector.getSelect()) {
+            case ALL -> false;
+            case BY_MATCH -> true;
+            case BY_SUMMARY_FEATURE -> true;
+        };
     }
 
 }

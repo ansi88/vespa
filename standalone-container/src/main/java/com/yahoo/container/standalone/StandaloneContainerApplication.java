@@ -21,10 +21,13 @@ import com.yahoo.config.model.application.provider.StaticConfigDefinitionRepo;
 import com.yahoo.config.model.builder.xml.ConfigModelId;
 import com.yahoo.config.model.builder.xml.XmlHelper;
 import com.yahoo.config.model.deploy.DeployState;
+import com.yahoo.config.model.deploy.TestProperties;
+import com.yahoo.config.provision.CloudName;
 import com.yahoo.config.provision.Environment;
 import com.yahoo.config.provision.RegionName;
 import com.yahoo.config.provision.SystemName;
 import com.yahoo.config.provision.Zone;
+import com.yahoo.config.provision.zone.ZoneInfo;
 import com.yahoo.container.di.config.SubscriberFactory;
 import com.yahoo.container.jdisc.ConfiguredApplication;
 import com.yahoo.io.IOUtils;
@@ -215,7 +218,7 @@ public class StandaloneContainerApplication implements Application {
 
     private static ContainerModelBuilder newContainerModelBuilder(Networking networkingOption) {
         return isConfigServer() ?
-                new ConfigServerContainerModelBuilder(new CloudConfigInstallVariables()) :
+                new ConfigServerContainerModelBuilder(new ConfigEnvironmentVariables()) :
                 new ContainerModelBuilder(true, networkingOption);
     }
 
@@ -262,18 +265,12 @@ public class StandaloneContainerApplication implements Application {
         return new Pair<>(root, container);
     }
 
-    private static Zone getZone() {
-        if (!isConfigServer()) {
-            return Zone.defaultZone();
-        }
-        CloudConfigInstallVariables cloudConfigVariables = new CloudConfigInstallVariables();
-        if (!cloudConfigVariables.hostedVespa().orElse(false)) {
-            return Zone.defaultZone();
-        }
-        RegionName region = cloudConfigVariables.region().map(RegionName::from).orElseGet(RegionName::defaultName);
-        Environment environment = cloudConfigVariables.environment().map(Environment::from).orElseGet(Environment::defaultEnvironment);
-        SystemName system = cloudConfigVariables.system().map(SystemName::from).orElseGet(SystemName::defaultSystem);
-        return new Zone(system, environment, region);
+    private static ZoneInfo getZone() {
+        if (!isConfigServer()) return ZoneInfo.from(Zone.defaultZone());
+
+        var environment = new ConfigEnvironmentVariables();
+        if (!environment.hostedVespa().orElse(false)) return ZoneInfo.from(Zone.defaultZone());
+        return environment.toZoneInfo();
     }
 
     private static DeployState createDeployState(ApplicationPackage applicationPackage, FileRegistry fileRegistry,
@@ -282,6 +279,7 @@ public class StandaloneContainerApplication implements Application {
                 .applicationPackage(applicationPackage)
                 .fileRegistry(fileRegistry)
                 .deployLogger(logger)
+                .properties(new TestProperties())
                 .configDefinitionRepo(configDefinitionRepo);
 
         return builder.build();

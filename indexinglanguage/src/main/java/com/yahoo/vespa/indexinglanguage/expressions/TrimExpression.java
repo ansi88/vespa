@@ -9,35 +9,27 @@ import com.yahoo.document.datatypes.StringFieldValue;
  */
 public final class TrimExpression extends Expression {
 
-    public TrimExpression() {
-        super(DataType.STRING);
+    @Override
+    public DataType setInputType(DataType input, TypeContext context) {
+        return super.setInputType(input, DataType.STRING, context);
+    }
+
+    @Override
+    public DataType setOutputType(DataType output, TypeContext context) {
+        return super.setOutputType(DataType.STRING, output, null, context);
     }
 
     @Override
     protected void doExecute(ExecutionContext context) {
-        context.setValue(new StringFieldValue(String.valueOf(context.getValue()).trim()));
+        context.setCurrentValue(new StringFieldValue(String.valueOf(context.getCurrentValue()).trim()));
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return DataType.STRING;
-    }
-
-    @Override
-    public String toString() {
-        return "trim";
-    }
+    public String toString() { return "trim"; }
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof TrimExpression)) {
-            return false;
-        }
+        if (!(obj instanceof TrimExpression)) return false;
         return true;
     }
 

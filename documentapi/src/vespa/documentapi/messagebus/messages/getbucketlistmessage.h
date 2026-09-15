@@ -2,15 +2,17 @@
 #pragma once
 
 #include "documentmessage.h"
+
 #include <vespa/document/bucket/bucketid.h>
-#include <vespa/vespalib/stllike/string.h>
+
+#include <string>
 
 namespace documentapi {
 
 class GetBucketListMessage : public DocumentMessage {
 private:
     document::BucketId _bucketId;
-    vespalib::string _bucketSpace;
+    std::string        _bucketSpace;
 
 protected:
     // Implements DocumentMessage.
@@ -22,7 +24,7 @@ public:
      *
      * @param bucketId The bucket whose list to retrieve.
      */
-    GetBucketListMessage(const document::BucketId &bucketId);
+    GetBucketListMessage(const document::BucketId& bucketId);
 
     ~GetBucketListMessage();
 
@@ -31,12 +33,12 @@ public:
      *
      * @return The bucket.
      */
-    const document::BucketId &getBucketId() const { return _bucketId; }
+    const document::BucketId& getBucketId() const { return _bucketId; }
 
-    const vespalib::string &getBucketSpace() const { return _bucketSpace; }
-    void setBucketSpace(const vespalib::string &value) { _bucketSpace = value; }
+    const std::string& getBucketSpace() const { return _bucketSpace; }
+    void setBucketSpace(const std::string& value) { _bucketSpace = value; }
     uint32_t getType() const override;
     string toString() const override { return "getbucketlistmessage"; }
 };
 
-}
+} // namespace documentapi

@@ -12,7 +12,9 @@ import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Simon Thoresen Hult
@@ -31,16 +33,16 @@ public class ToPositionTestCase {
     public void requireThatExpressionCanBeVerified() {
         Expression exp = new ToPositionExpression();
         assertVerify(DataType.STRING, exp, PositionDataType.INSTANCE);
-        assertVerifyThrows(null, exp, "Expected string input, but no input is specified");
-        assertVerifyThrows(DataType.INT, exp, "Expected string input, got int");
+        assertVerifyThrows("Invalid expression 'to_pos': Expected string input, but no input is provided", null, exp);
+        assertVerifyThrows("Invalid expression 'to_pos': Expected string input, got int", DataType.INT, exp);
     }
 
     @Test
     public void requireThatPositionIsParsed() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new StringFieldValue("6;9")).execute(new ToPositionExpression());
+        ctx.setCurrentValue(new StringFieldValue("6;9")).execute(new ToPositionExpression());
 
-        FieldValue out = ctx.getValue();
+        FieldValue out = ctx.getCurrentValue();
         assertTrue(out instanceof StructuredFieldValue);
         assertEquals(PositionDataType.INSTANCE, out.getDataType());
 

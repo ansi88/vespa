@@ -3,7 +3,9 @@
 #pragma once
 
 #include <vespa/documentapi/messagebus/priority.h>
+
 #include <array>
+#include <cstdint>
 #include <vector>
 
 namespace storage {
@@ -32,4 +34,4 @@ private:
     std::vector<documentapi::Priority::Value> _reverse_mapping;
 };
 
-} // storage
+} // namespace storage

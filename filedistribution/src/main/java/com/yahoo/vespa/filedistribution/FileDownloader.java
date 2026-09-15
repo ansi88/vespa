@@ -2,12 +2,14 @@
 package com.yahoo.vespa.filedistribution;
 
 import com.yahoo.config.FileReference;
+import com.yahoo.jrt.Spec;
 import com.yahoo.jrt.Supervisor;
 import com.yahoo.vespa.config.Connection;
 import com.yahoo.vespa.config.ConnectionPool;
 import com.yahoo.vespa.defaults.Defaults;
 import java.io.File;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -26,9 +28,11 @@ import java.util.logging.Logger;
 public class FileDownloader implements AutoCloseable {
 
     private static final Logger log = Logger.getLogger(FileDownloader.class.getName());
-    private static final Duration defaultSleepBetweenRetries = Duration.ofSeconds(5);
-    public static final File defaultDownloadDirectory = new File(Defaults.getDefaults().underVespaHome("var/db/vespa/filedistribution"));
-    private static final boolean forceDownload = Boolean.parseBoolean(System.getenv("VESPA_CONFIG_PROXY_FORCE_DOWNLOAD_OF_FILE_REFERENCES"));
+    private static final Duration backoffInitialTime;
+    public static final File defaultDownloadDirectory =
+            new File(Defaults.getDefaults().underVespaHome("var/db/vespa/filedistribution"));
+    // Undocumented on purpose, might change or be removed at any time
+    private static final boolean forceDownload = Boolean.parseBoolean(System.getenv("VESPA_FORCE_DOWNLOAD_OF_FILE_REFERENCES"));
 
     private final ConnectionPool connectionPool;
     private final Supervisor supervisor;
@@ -37,30 +41,52 @@ public class FileDownloader implements AutoCloseable {
     private final FileReferenceDownloader fileReferenceDownloader;
     private final Downloads downloads = new Downloads();
 
-    public FileDownloader(ConnectionPool connectionPool, Supervisor supervisor, Duration timeout) {
-        this(connectionPool, supervisor, defaultDownloadDirectory, timeout, defaultSleepBetweenRetries);
+    static {
+        // Undocumented on purpose, might change or be removed at any time
+        var backOff = System.getenv("VESPA_FILE_DOWNLOAD_BACKOFF_INITIAL_TIME_MS");
+        backoffInitialTime = Duration.ofMillis(backOff == null ? 1000 : Long.parseLong(backOff));
     }
 
-    public FileDownloader(ConnectionPool connectionPool, Supervisor supervisor, File downloadDirectory, Duration timeout) {
-        this(connectionPool, supervisor, downloadDirectory, timeout, defaultSleepBetweenRetries);
+    public FileDownloader(ConnectionPool connectionPool, Supervisor supervisor, Duration timeout) {
+        this(connectionPool, supervisor, defaultDownloadDirectory, timeout, backoffInitialTime);
     }
 
     public FileDownloader(ConnectionPool connectionPool,
                           Supervisor supervisor,
                           File downloadDirectory,
                           Duration timeout,
-                          Duration sleepBetweenRetries) {
+                          Duration backoffInitialTime) {
+        this(connectionPool, supervisor, downloadDirectory, timeout, backoffInitialTime,
+             FileReferenceDownloader.defaultMaxTimeoutsBeforeClose);
+    }
+
+    public FileDownloader(ConnectionPool connectionPool,
+                          Supervisor supervisor,
+                          File downloadDirectory,
+                          Duration timeout,
+                          Duration backoffInitialTime,
+                          int maxTimeoutsBeforeClose) {
+        this(connectionPool, supervisor, downloadDirectory, timeout, backoffInitialTime, maxTimeoutsBeforeClose,
+             FileReferenceDownloader.defaultPermissionDeniedGracePeriod);
+    }
+
+    // For tests: allows overriding the permission-denied grace period.
+    public FileDownloader(ConnectionPool connectionPool,
+                          Supervisor supervisor,
+                          File downloadDirectory,
+                          Duration timeout,
+                          Duration backoffInitialTime,
+                          int maxTimeoutsBeforeClose,
+                          Duration permissionDeniedGracePeriod) {
         this.connectionPool = connectionPool;
         this.supervisor = supervisor;
         this.downloadDirectory = downloadDirectory;
         this.timeout = timeout;
         // Needed to receive RPC receiveFile* calls from server after starting download of file reference
         new FileReceiver(supervisor, downloads, downloadDirectory);
-        this.fileReferenceDownloader = new FileReferenceDownloader(connectionPool,
-                                                                   downloads,
-                                                                   timeout,
-                                                                   sleepBetweenRetries,
-                                                                   downloadDirectory);
+        this.fileReferenceDownloader = new FileReferenceDownloader(connectionPool, downloads, timeout,
+                                                                    backoffInitialTime, downloadDirectory,
+                                                                    maxTimeoutsBeforeClose, permissionDeniedGracePeriod);
         if (forceDownload)
             log.log(Level.INFO, "Force download of file references (download even if file reference exists on disk)");
     }
@@ -68,7 +94,12 @@ public class FileDownloader implements AutoCloseable {
     public Optional<File> getFile(FileReferenceDownload fileReferenceDownload) {
         try {
             return getFutureFile(fileReferenceDownload).get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
+        } catch (ExecutionException e) {
+            fileReferenceDownloader.failedDownloading(fileReferenceDownload.fileReference());
+            if (e.getCause() instanceof FileReferenceDownloadPermissionDeniedException permissionDenied)
+                throw permissionDenied;
+            return Optional.empty();
+        } catch (InterruptedException | TimeoutException e) {
             fileReferenceDownloader.failedDownloading(fileReferenceDownload.fileReference());
             return Optional.empty();
         }
@@ -137,15 +168,18 @@ public class FileDownloader implements AutoCloseable {
         return downloads.get(fileReference).isPresent();
     }
 
-    /** Start a download if needed, don't wait for result */
-    public void downloadIfNeeded(FileReferenceDownload fileReferenceDownload) {
-        if (fileReferenceExists(fileReferenceDownload.fileReference(), downloadDirectory)) return;
+    /** Start a download from the specified source, don't wait for result
+     *  @return true if download was started, false if file reference already exists
+     */
+    public boolean downloadFromSource(FileReferenceDownload fileReferenceDownload, Spec source) {
+        if (fileReferenceExists(fileReferenceDownload.fileReference(), downloadDirectory)) return false;
 
-        startDownload(fileReferenceDownload);
+        fileReferenceDownloader.startDownloadFromSource(fileReferenceDownload, source);
+        return true;
     }
 
     /** Start downloading, the future returned will be complete()d by receiving method in {@link FileReceiver} */
-    private synchronized CompletableFuture<Optional<File>> startDownload(FileReferenceDownload fileReferenceDownload) {
+    private CompletableFuture<Optional<File>> startDownload(FileReferenceDownload fileReferenceDownload) {
         return fileReferenceDownloader.startDownload(fileReferenceDownload);
     }
 
@@ -171,6 +205,9 @@ public class FileDownloader implements AutoCloseable {
 
         @Override
         public int getSize() { return 0; }
+
+        @Override
+        public List<Connection> connections() { return List.of(); }
 
     }
 

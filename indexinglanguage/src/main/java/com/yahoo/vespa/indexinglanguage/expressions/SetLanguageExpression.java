@@ -11,28 +11,27 @@ import com.yahoo.language.Language;
  */
 public final class SetLanguageExpression extends Expression {
 
-    public SetLanguageExpression() {
-        super(DataType.STRING);
+    @Override
+    public boolean isMutating() { return false; }
+
+    @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        return super.setInputType(inputType, DataType.STRING, context);
     }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        return super.setOutputType(outputType, context);
+    }
+
     @Override
     protected void doExecute(ExecutionContext context) {
-        context.setLanguage(Language.fromLanguageTag(String.valueOf(context.getValue())));
+        if (context.getCurrentValue() == null) context.setLanguage(Language.UNKNOWN);
+        context.setLanguage(Language.fromLanguageTag(String.valueOf(context.getCurrentValue())));
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        // empty
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return null;
-    }
-
-    @Override
-    public String toString() {
-        return "set_language";
-    }
+    public String toString() { return "set_language"; }
 
     @Override
     public boolean equals(Object obj) {

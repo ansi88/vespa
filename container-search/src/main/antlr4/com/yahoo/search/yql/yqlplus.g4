@@ -2,7 +2,7 @@
 grammar yqlplus;
 
 options {
-  superClass = ParserBase;
+  superClass = Parser;
   language = Java;
 }
 
@@ -142,7 +142,7 @@ WS  :   ( ' '
     ;
 
 COMMENT
-    :  ( ('//') ~('\n'|'\r')* '\r'? '\n'? 
+    :  ( ('//' | '#') ~('\n'|'\r')* '\r'? '\n'?
     | '/*' .*? '*/'
     )
     -> channel(HIDDEN)
@@ -410,14 +410,18 @@ dereferenced_expression
 	     (
 	        indexref[in_select]
           | propertyref
+          | mapref[in_select]
 	     )*
 	;
-	
+
 indexref[boolean in_select]
 	:	LBRACKET idx=expression[in_select] RBRACKET
 	;
 propertyref
 	: 	DOT nm=IDENTIFIER
+	;
+mapref[boolean in_select]
+	:	LBRACE key=expression[in_select] RBRACE
 	;
 
 primary_expression
@@ -477,9 +481,9 @@ scalar_literal
 	;
 	
 array_parameter
-    : AT i=ident {isArrayParameter($i.ctx)}?
+    : AT i=ident {false}?
     ;
-    
+
 literal_list
 	: LPAREN literal_element (COMMA literal_element)* RPAREN
 	;

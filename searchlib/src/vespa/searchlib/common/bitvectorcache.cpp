@@ -1,9 +1,12 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #include "bitvectorcache.h"
+
 #include <vespa/vespalib/stllike/hash_map.hpp>
+
 #include <algorithm>
 #include <cassert>
 #include <cinttypes>
+#include <cstring>
 #include <mutex>
 
 #include <vespa/log/log.h>
@@ -11,34 +14,25 @@ LOG_SETUP(".searchlib.common.bitvectorcache");
 
 namespace search {
 
-BitVectorCache::BitVectorCache(GenerationHolder &genHolder)
-    : _lookupCount(0),
-      _needPopulation(false),
-      _mutex(),
-      _keys(),
-      _chunks(),
-      _genHolder(genHolder)
-{
+BitVectorCache::BitVectorCache(GenerationHolder& genHolder)
+    : _lookupCount(0), _needPopulation(false), _mutex(), _keys(), _chunk(), _genHolder(genHolder) {
 }
 
 BitVectorCache::~BitVectorCache() = default;
 
-void
-BitVectorCache::computeCountVector(KeySet & keys, CountVector & v) const
-{
-    std::vector<Key> notFound;
-    std::vector<CondensedBitVector::KeySet> keySets;
-    ChunkV chunks;
+void BitVectorCache::computeCountVector(KeySet& keys, std::span<uint8_t> v) const {
+    std::vector<Key>           notFound;
+    CondensedBitVector::KeySet keySet;
+    CondensedBitVector::SP     chunk;
     {
         std::shared_lock guard(_mutex);
-        keySets.resize(_chunks.size());
-        auto end = _keys.end();
+        auto             end = _keys.end();
         for (Key k : keys) {
             auto found = _keys.find(k);
             if (found != end) {
-                const KeyMeta & m = found->second;
+                const KeyMeta& m = found->second;
                 if (m.isCached()) {
-                    keySets[m.chunkId()].insert(m.chunkIndex());
+                    keySet.insert(m.chunkIndex());
                 } else {
                     notFound.push_back(k);
                 }
@@ -46,30 +40,22 @@ BitVectorCache::computeCountVector(KeySet & keys, CountVector & v) const
                 notFound.push_back(k);
             }
         }
-        chunks = _chunks;
+        chunk = _chunk;
     }
     for (Key k : notFound) {
         keys.erase(k);
     }
-    size_t index(0);
-    if (chunks.empty()) {
+    if (!chunk) {
         memset(&v[0], 0, v.size());
-    }
-    for (const auto & chunk : chunks) {
-        if (index == 0) {
-            chunk->initializeCountVector(keySets[index++], v);
-        } else {
-            chunk->addCountVector(keySets[index++], v);
-        }
+    } else {
+        chunk->initializeCountVector(keySet, v);
     }
 }
 
-BitVectorCache::KeySet
-BitVectorCache::lookupCachedSet(const KeyAndCountSet & keys)
-{
-    KeySet cached(keys.size()*3);
+BitVectorCache::KeySet BitVectorCache::lookupCachedSet(const KeyAndCountSet& keys) {
+    KeySet           cached(keys.size() * 3);
     std::shared_lock shared_guard(_mutex);
-    uint64_t lookupCount = _lookupCount++;
+    uint64_t         lookupCount = _lookupCount++;
     if (lookupCount == 2000) {
         requirePopulation();
     } else if ((lookupCount & 0x1fffff) == 0x100000) {
@@ -77,10 +63,10 @@ BitVectorCache::lookupCachedSet(const KeyAndCountSet & keys)
             requirePopulation();
         }
     }
-    for (const auto & e : keys) {
+    for (const auto& e : keys) {
         auto found = _keys.find(e.first);
         if (found != _keys.end()) {
-            KeyMeta & m = found->second;
+            KeyMeta& m = found->second;
             m.lookup();
             if (m.isCached()) {
                 cached.insert(e.first);
@@ -97,69 +83,63 @@ BitVectorCache::lookupCachedSet(const KeyAndCountSet & keys)
     return cached;
 }
 
-BitVectorCache::SortedKeyMeta
-BitVectorCache::getSorted(Key2Index & keys)
-{
+BitVectorCache::SortedKeyMeta BitVectorCache::getSorted(Key2Index& keys) {
     SortedKeyMeta sorted;
     sorted.reserve(keys.size());
-    for (auto & e : keys) {
+    for (auto& e : keys) {
         sorted.emplace_back(e.first, &e.second);
     }
     std::sort(sorted.begin(), sorted.end(),
-        [&] (const auto & a, const auto & b) {
-             return a.second->cost() > b.second->cost();
-        });
+              [&](const auto& a, const auto& b) { return a.second->cost() > b.second->cost(); });
     return sorted;
 }
 
-bool
-BitVectorCache::hasCostChanged(const std::shared_lock<std::shared_mutex> & guard)
-{
-    (void) guard;
-    if ( ! _chunks.empty()) {
+bool BitVectorCache::hasCostChanged(const std::shared_lock<std::shared_mutex>& guard) {
+    (void)guard;
+    if (_chunk) {
         SortedKeyMeta sorted(getSorted(_keys));
-        double oldCached(0);
-        for (auto & e : sorted) {
-            const KeyMeta & m = *e.second;
-            if ( m.isCached() ) {
+        double        oldCached(0);
+        for (auto& e : sorted) {
+            const KeyMeta& m = *e.second;
+            if (m.isCached()) {
                 oldCached += m.cost();
             }
         }
         double newCached(0);
-        for (size_t i(0); i < sorted.size() && i < _chunks[0]->getKeyCapacity(); i++) {
-            const KeyMeta & m = *sorted[i].second;
+        for (size_t i(0); i < sorted.size() && i < _chunk->getKeyCapacity(); i++) {
+            const KeyMeta& m = *sorted[i].second;
             newCached += m.cost();
         }
-        if (newCached > oldCached * 1.01) {  // 1% change needed.
+        if (newCached > oldCached * 1.01) { // 1% change needed.
             return true;
         }
     }
     return false;
 }
 
-void
-BitVectorCache::populate(Key2Index & newKeys, CondensedBitVector & chunk, const PopulateInterface & lookup)
-{
+void BitVectorCache::populate(Key2Index& newKeys, CondensedBitVector& chunk, const PopulateInterface& lookup) {
     SortedKeyMeta sorted(getSorted(newKeys));
 
     double sum(0);
-    for (auto & e : sorted) {
+    for (auto& e : sorted) {
         e.second->unCache();
         sum += e.second->cost();
     }
-    double accum(0.0);
+    double   accum(0.0);
     uint32_t index(0);
-    for (const auto & e : sorted) {
-        KeyMeta & m = *e.second;
+    for (const auto& e : sorted) {
+        KeyMeta& m = *e.second;
         if (index >= chunk.getKeyCapacity()) {
-            assert( ! m.isCached());
+            assert(!m.isCached());
         } else {
-            double percentage(m.cost()*100.0/sum);
+            double percentage(m.cost() * 100.0 / sum);
             accum += percentage;
             m.chunkId(0);
             m.chunkIndex(index);
-            LOG(debug, "Populating bitvector %2d with feature %" PRIu64 " and %ld bits set. Cost is %8f = %2.2f%%, accumulated cost is %2.2f%%",
-                       index, e.first, m.bitCount(), m.cost(), percentage, accum);
+            LOG(debug,
+                "Populating bitvector %2d with feature %" PRIu64
+                " and %ld bits set. Cost is %8f = %2.2f%%, accumulated cost is %2.2f%%",
+                index, e.first, m.bitCount(), m.cost(), percentage, accum);
             assert(m.isCached());
             assert(newKeys[e.first].isCached());
             assert(&m == &newKeys[e.first]);
@@ -169,67 +149,55 @@ BitVectorCache::populate(Key2Index & newKeys, CondensedBitVector & chunk, const 
                     chunk.set(m.chunkIndex(), docId, true);
                 }
             } else {
-                LOG(error, "Unable to to find a valid iterator for feature %" PRIu64 " and %ld bits set at while populating bitvector %2d. This should in theory be impossible.",
-                           e.first, m.bitCount(), index);
+                LOG(error,
+                    "Unable to to find a valid iterator for feature %" PRIu64
+                    " (and %ld bits set) while populating bitvector %2d. This should in theory be impossible.",
+                    e.first, m.bitCount(), index);
             }
             index++;
         }
     }
 }
 
-void
-BitVectorCache::populate(uint32_t sz, const PopulateInterface & lookup)
-{
-    if (!needPopulation()) return;
-    std::unique_lock guard(_mutex);
-    Key2Index newKeys(_keys);
+void BitVectorCache::populate(uint32_t sz, const PopulateInterface& lookup) {
+    if (!needPopulation())
+        return;
+    CondensedBitVector::UP chunk(CondensedBitVector::create(sz, _genHolder));
+    std::unique_lock       guard(_mutex);
+    Key2Index              newKeys(_keys);
     guard.unlock();
 
-    CondensedBitVector::UP chunk(CondensedBitVector::create(sz, _genHolder));
     populate(newKeys, *chunk, lookup);
 
     guard.lock();
-    _chunks.push_back(std::move(chunk));
+    _chunk = std::move(chunk);
     _keys.swap(newKeys);
     _needPopulation = false;
 }
 
-void
-BitVectorCache::set(Key key, uint32_t index, bool v)
-{
+void BitVectorCache::set(Key key, uint32_t index, bool v) {
     std::shared_lock guard(_mutex);
-    auto found = _keys.find(key);
+    auto             found = _keys.find(key);
     if (found != _keys.end()) {
-        const KeyMeta & m(found->second);
+        const KeyMeta& m(found->second);
         if (m.isCached()) {
-            _chunks[m.chunkId()]->set(m.chunkIndex(), index, v);
+            _chunk->set(m.chunkIndex(), index, v);
         }
     }
 }
 
-bool
-BitVectorCache::get(Key key, uint32_t index) const
-{
-    (void) key; (void) index;
-    return false;
-}
-
-void
-BitVectorCache::removeIndex(uint32_t index)
-{
+void BitVectorCache::removeIndex(uint32_t index) {
     std::unique_lock guard(_mutex);
-    for (auto & chunk : _chunks) {
-        chunk->clearIndex(index);
+    if (_chunk) {
+        _chunk->clearIndex(index);
     }
 }
 
-
-void
-BitVectorCache::adjustDocIdLimit(uint32_t docId)
-{
-    for (auto &chunk : _chunks) {
-        chunk->adjustDocIdLimit(docId);
+void BitVectorCache::adjustDocIdLimit(uint32_t docId) {
+    std::unique_lock guard(_mutex);
+    if (_chunk) {
+        _chunk->adjustDocIdLimit(docId);
     }
 }
 
-}
+} // namespace search

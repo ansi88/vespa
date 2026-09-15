@@ -20,13 +20,13 @@ public class StemmerImplTestCase {
 
     @Test
     public void requireThatStemIsNormalizedAndLowerCased() {
-        assertStem("FOO", List.of("foo"));
-        assertStem("a\u030A", List.of("\u00E5"));
+        assertStem("FOO", List.of("foo"), true);
+        assertStem("a\u030A", List.of("\u00E5"), false);
     }
 
     @Test
     public void requireThatOnlyIndexableTokensAreReturned() {
-        assertStem("foo. (bar)!", List.of("foo", "bar"));
+        assertStem("foo. (bar)!", List.of("foo", "bar"), true);
     }
 
     @Test
@@ -40,8 +40,7 @@ public class StemmerImplTestCase {
                                                   .addComponent(new SimpleToken("p").setType(TokenType.ALPHABETIC)
                                                                                     .setTokenString("p"));
         Tokenizer tokenizer = Mockito.mock(Tokenizer.class);
-        Mockito.when(tokenizer.tokenize(Mockito.anyString(), Mockito.<Language>any(), Mockito.<StemMode>any(),
-                                        Mockito.anyBoolean()))
+        Mockito.when(tokenizer.tokenize(Mockito.anyString(), Mockito.<LinguisticsParameters>any()))
                .thenReturn(List.of(token));
         Stemmer stemmer = new StemmerImpl(tokenizer);
 
@@ -49,17 +48,19 @@ public class StemmerImplTestCase {
         assertEquals(List.of(new StemList("c"),
                                    new StemList("p"),
                                    new StemList("p")),
-                     stemmer.stem("c++", StemMode.SHORTEST, Language.ENGLISH));
+                     stemmer.stem("c++",
+                                  new LinguisticsParameters(null, Language.ENGLISH, StemMode.SHORTEST, true, true)));
 
         token.setSpecialToken(true);
         assertEquals(List.of(new StemList("c++")),
-                     stemmer.stem("c++", StemMode.SHORTEST, Language.ENGLISH));
+                     stemmer.stem("c++", new LinguisticsParameters(null, Language.ENGLISH, StemMode.SHORTEST, true, true)));
     }
 
-    private static void assertStem(String input, List<String> expectedStems) {
+    private static void assertStem(String input, List<String> expectedStems, boolean removeAccents) {
         Stemmer stemmer = new StemmerImpl(new SimpleTokenizer(new SimpleNormalizer()));
+        var parameters = new LinguisticsParameters(null, Language.ENGLISH, StemMode.ALL, removeAccents, true);
         List<String> got = new ArrayList<>();
-        for (StemList word : stemmer.stem(input, StemMode.ALL, Language.ENGLISH)) {
+        for (StemList word : stemmer.stem(input, parameters)) {
             got.add(word.get(0));
         }
         assertEquals(expectedStems, got);

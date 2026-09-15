@@ -13,12 +13,12 @@ using storage::lib::NodeType;
 
 class MockMirror : public IMirrorAPI {
 public:
-    using Mappings = std::map<vespalib::string, IMirrorAPI::SpecList>;
+    using Mappings = std::map<std::string, IMirrorAPI::SpecList>;
     Mappings mappings;
     uint32_t gen;
     MockMirror() : mappings(), gen(1) {}
     SpecList lookup(std::string_view pattern) const override {
-        auto itr = mappings.find(vespalib::string(pattern));
+        auto itr = mappings.find(std::string(pattern));
         if (itr != mappings.end()) {
             return itr->second;
         }
@@ -32,11 +32,12 @@ public:
 class MockRpcTarget : public RpcTarget {
 private:
     bool& _valid;
+
 public:
     MockRpcTarget(bool& valid) : _valid(valid) {}
     FRT_Target* get() noexcept override { return nullptr; }
     bool is_valid() const noexcept override { return _valid; }
-    const vespalib::string& spec() const noexcept override { abort(); }
+    const std::string& spec() const noexcept override { abort(); }
 };
 
 class MockTargetFactory : public RpcTargetFactory {
@@ -44,25 +45,25 @@ public:
     mutable bool valid_target;
 
     MockTargetFactory() : valid_target(true) {}
-    std::unique_ptr<RpcTarget> make_target([[maybe_unused]] const vespalib::string& connection_spec) const override {
+    std::unique_ptr<RpcTarget> make_target([[maybe_unused]] const std::string& connection_spec) const override {
         return std::make_unique<MockRpcTarget>(valid_target);
     }
 };
 
-vespalib::string _my_cluster("my_cluster");
+std::string _my_cluster("my_cluster");
 
 class CachingRpcTargetResolverTest : public ::testing::Test {
 public:
-    MockMirror mirror;
-    MockTargetFactory factory;
+    MockMirror               mirror;
+    MockTargetFactory        factory;
     CachingRpcTargetResolver resolver;
-    StorageMessageAddress address_0;
-    StorageMessageAddress address_1;
-    vespalib::string spec_0;
-    vespalib::string spec_1;
-    uint64_t bucket_id_0;
-    uint64_t bucket_id_1;
-    uint64_t bucket_id_2;
+    StorageMessageAddress    address_0;
+    StorageMessageAddress    address_1;
+    std::string              spec_0;
+    std::string              spec_1;
+    uint64_t                 bucket_id_0;
+    uint64_t                 bucket_id_1;
+    uint64_t                 bucket_id_2;
 
     CachingRpcTargetResolverTest()
         : mirror(),
@@ -74,14 +75,13 @@ public:
           spec_1("tcp/my:42"),
           bucket_id_0(3),
           bucket_id_1(4),
-          bucket_id_2(5)
-    {
+          bucket_id_2(5) {
         add_mapping(address_0, spec_0);
     }
-    void add_mapping(const StorageMessageAddress& address, const vespalib::string& connection_spec) {
+    void add_mapping(const StorageMessageAddress& address, const std::string& connection_spec) {
         mirror.mappings[to_slobrok_id(address)] = {{to_slobrok_id(address), connection_spec}};
     }
-    static vespalib::string to_slobrok_id(const storage::api::StorageMessageAddress& address) {
+    static std::string to_slobrok_id(const storage::api::StorageMessageAddress& address) {
         return CachingRpcTargetResolver::address_to_slobrok_id(address);
     }
     std::shared_ptr<RpcTarget> resolve_rpc_target(const StorageMessageAddress& address) {
@@ -89,14 +89,12 @@ public:
     }
 };
 
-TEST_F(CachingRpcTargetResolverTest, converts_storage_message_address_to_slobrok_id)
-{
+TEST_F(CachingRpcTargetResolverTest, converts_storage_message_address_to_slobrok_id) {
     EXPECT_EQ("storage/cluster.my_cluster/storage/5", to_slobrok_id(address_0));
     EXPECT_EQ("storage/cluster.my_cluster/distributor/7", to_slobrok_id(address_1));
 }
 
-TEST_F(CachingRpcTargetResolverTest, resolves_rpc_target_and_caches_result)
-{
+TEST_F(CachingRpcTargetResolverTest, resolves_rpc_target_and_caches_result) {
     auto target_a = resolve_rpc_target(address_0);
     ASSERT_TRUE(target_a);
     auto target_b = resolve_rpc_target(address_0);
@@ -104,8 +102,7 @@ TEST_F(CachingRpcTargetResolverTest, resolves_rpc_target_and_caches_result)
     EXPECT_EQ(target_a.get(), target_b.get());
 }
 
-TEST_F(CachingRpcTargetResolverTest, rpc_target_pool_is_updated_when_slobrok_generation_changes)
-{
+TEST_F(CachingRpcTargetResolverTest, rpc_target_pool_is_updated_when_slobrok_generation_changes) {
     auto target_a = resolve_rpc_target(address_0);
     mirror.inc_gen();
     auto target_b = resolve_rpc_target(address_0);
@@ -114,8 +111,7 @@ TEST_F(CachingRpcTargetResolverTest, rpc_target_pool_is_updated_when_slobrok_gen
     EXPECT_EQ(2, pool->slobrok_gen());
 }
 
-TEST_F(CachingRpcTargetResolverTest, new_rpc_target_is_created_if_connection_spec_changes)
-{
+TEST_F(CachingRpcTargetResolverTest, new_rpc_target_is_created_if_connection_spec_changes) {
     auto target_a = resolve_rpc_target(address_0);
     add_mapping(address_0, spec_1);
     mirror.inc_gen();
@@ -126,22 +122,19 @@ TEST_F(CachingRpcTargetResolverTest, new_rpc_target_is_created_if_connection_spe
     EXPECT_EQ(2, pool->slobrok_gen());
 }
 
-TEST_F(CachingRpcTargetResolverTest, new_rpc_target_is_created_if_raw_target_is_invalid)
-{
+TEST_F(CachingRpcTargetResolverTest, new_rpc_target_is_created_if_raw_target_is_invalid) {
     auto target_a = resolve_rpc_target(address_0);
     factory.valid_target = false;
     auto target_b = resolve_rpc_target(address_0);
     EXPECT_NE(target_a.get(), target_b.get());
 }
 
-TEST_F(CachingRpcTargetResolverTest, null_rpc_target_is_returned_if_slobrok_id_is_not_found)
-{
+TEST_F(CachingRpcTargetResolverTest, null_rpc_target_is_returned_if_slobrok_id_is_not_found) {
     auto target = resolve_rpc_target(address_1);
     EXPECT_FALSE(target);
 }
 
-TEST_F(CachingRpcTargetResolverTest, bucket_id_is_used_to_select_target)
-{
+TEST_F(CachingRpcTargetResolverTest, bucket_id_is_used_to_select_target) {
     auto target_a = resolver.resolve_rpc_target(address_0, bucket_id_0);
     auto target_b = resolver.resolve_rpc_target(address_0, bucket_id_0);
     auto target_c = resolver.resolve_rpc_target(address_0, bucket_id_2);

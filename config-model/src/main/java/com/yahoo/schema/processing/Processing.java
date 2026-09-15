@@ -23,8 +23,6 @@ public class Processing {
 
     private final ModelContext.Properties properties;
 
-    public Processing() { this.properties = new TestProperties(); }
-
     public Processing(ModelContext.Properties properties) { this.properties = properties; }
 
     private Collection<ProcessorFactory> processors() {
@@ -40,10 +38,12 @@ public class Processing {
                 LiteralBoost::new,
                 TagType::new,
                 ValidateFieldTypesDocumentsOnly::new,
+                CreateFastMapSearch::new,
                 IndexingInputs::new,
                 OptimizeIlscript::new,
                 ValidateFieldWithIndexSettingsCreatesIndex::new,
                 AttributesImplicitWord::new,
+                LinguisticsSettings::new,
                 MutableAttributes::new,
                 CreatePositionZCurve::new,
                 DictionaryProcessor::new,
@@ -54,11 +54,12 @@ public class Processing {
                 ImplicitSummaryFields::new,
                 AdjustPositionSummaryFields::new,
                 SummaryConsistency::new,
+                SummaryStructFieldSelectValidator::new,
                 AdjustSummaryTransforms::new,
                 SummaryNamesFieldCollisions::new,
                 SummaryFieldsMustHaveValidSource::new,
                 TokensTransformValidator::new,
-                MatchedElementsOnlyResolver::new,
+                SummaryElementsSelectorValidator::new,
                 MakeDefaultSummaryTheSuperSet::new,
                 Bolding::new,
                 AttributeProperties::new,
@@ -71,6 +72,7 @@ public class Processing {
                 TextMatch::new,
                 MultifieldIndexHarmonizer::new,
                 FilterFieldNames::new,
+                ValidateNoFieldRankFilterOverlap::new,
                 MatchConsistency::new,
                 ValidateStructTypeInheritance::new,
                 ValidateFieldTypes::new,
@@ -94,7 +96,8 @@ public class Processing {
                 PagedAttributeValidator::new,
                 // These should be last:
                 IndexingValidation::new,
-                IndexingValues::new);
+                IndexingValues::new,
+                RankProfileValidator::new);
     }
 
     /** Processors of rank profiles only (those who tolerate and do something useful when the search field is null) */

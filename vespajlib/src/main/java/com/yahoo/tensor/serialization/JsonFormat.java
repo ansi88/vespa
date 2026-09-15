@@ -4,10 +4,13 @@ package com.yahoo.tensor.serialization;
 import com.yahoo.lang.MutableInteger;
 import com.yahoo.slime.ArrayTraverser;
 import com.yahoo.slime.Cursor;
+import com.yahoo.slime.Inserter;
 import com.yahoo.slime.Inspector;
 import com.yahoo.slime.JsonDecoder;
+import com.yahoo.slime.ObjectInserter;
 import com.yahoo.slime.ObjectTraverser;
 import com.yahoo.slime.Slime;
+import com.yahoo.slime.SlimeInserter;
 import com.yahoo.slime.Type;
 import com.yahoo.tensor.DimensionSizes;
 import com.yahoo.tensor.IndexedTensor;
@@ -15,19 +18,30 @@ import com.yahoo.tensor.MappedTensor;
 import com.yahoo.tensor.MixedTensor;
 import com.yahoo.tensor.Tensor;
 import com.yahoo.tensor.TensorAddress;
+import java.util.Locale;
 import com.yahoo.tensor.TensorType;
 import java.util.Iterator;
+import java.util.function.Function;
 
 /**
  * Writes tensors on the JSON format used in Vespa tensor document fields:
  * A JSON map containing a 'cells' or 'values' array.
- * See <a href="https://docs.vespa.ai/en/reference/document-json-format.html">
- * https://docs.vespa.ai/en/reference/document-json-format.html</a>
+ * See <a href="https://docs.vespa.ai/en/reference/schemas/document-json-format.html">
+ * https://docs.vespa.ai/en/reference/schemas/document-json-format.html</a>
  *
  * @author bratseth
  */
 public class JsonFormat {
 
+    /** Options for encode */
+    public record EncodeOptions(boolean shortForm, boolean directValues, boolean hexForDensePart) {
+        // TODO - consider "compact" flag
+        public EncodeOptions() { this(false); }
+        public EncodeOptions(boolean shortForm) { this(shortForm, false); }
+        public EncodeOptions(boolean shortForm, boolean directValues) {
+            this(shortForm, directValues, false);
+        }
+    }
     /**
      * Serializes the given tensor value into JSON format.
      *
@@ -36,38 +50,55 @@ public class JsonFormat {
      * @param directValues whether to encode values directly, or wrapped in am object containing "type" and "cells"
      */
     public static byte[] encode(Tensor tensor, boolean shortForm, boolean directValues) {
+        return encode(tensor, new EncodeOptions(shortForm, directValues, false));
+    }
+
+    /**
+     * Serializes the given tensor value into JSON format.
+     *
+     * @param tensor the tensor to serialize
+     * @param options format options for short/long, wrapped/direct, etc
+     */
+    public static byte[] encode(Tensor tensor, EncodeOptions options) {
         Slime slime = new Slime();
-        Cursor root = null;
-        if ( ! directValues) {
-            root = slime.setObject();
+        Function<String, Inserter> target = (key -> new SlimeInserter(slime));
+        final Cursor root = options.directValues() ? null : slime.setObject();
+        if ( ! options.directValues()) {
             root.setString("type", tensor.type().toString());
+            target = (key -> new ObjectInserter(root, key));
         }
 
-        if (shortForm) {
+        if (options.shortForm()) {
             if (tensor instanceof IndexedTensor denseTensor) {
-                // Encode as nested lists if indexed tensor
-                Cursor parent = root == null ? slime.setArray() : root.setArray("values");
-                encodeValues(denseTensor, parent, new long[denseTensor.dimensionSizes().dimensions()], 0);
-            } else if (tensor instanceof MappedTensor && tensor.type().dimensions().size() == 1) {
+                if (options.hexForDensePart()) {
+                    target.apply("values").insertSTRING(asHexString(denseTensor));
+                } else {
+                    // Encode as nested arrays if indexed tensor
+                    Cursor parent = target.apply("values").insertARRAY();
+                    encodeDenseValues(denseTensor, parent);
+                }
+            } else if (tensor instanceof MappedTensor mapped && tensor.type().dimensions().size() == 1) {
                 // Short form for a single mapped dimension
-                Cursor parent = root == null ? slime.setObject() : root.setObject("cells");
-                encodeSingleDimensionCells((MappedTensor) tensor, parent);
-            } else if (tensor instanceof MixedTensor && tensor.type().hasMappedDimensions()) {
+                Cursor parent = target.apply("cells").insertOBJECT();
+                encodeSingleDimensionCells(mapped, parent);
+            } else if (tensor instanceof MixedTensor mixed && tensor.type().hasMappedDimensions()) {
                 // Short form for a mixed tensor
                 boolean singleMapped = tensor.type().dimensions().stream().filter(TensorType.Dimension::isMapped).count() == 1;
-                Cursor parent = root == null ? ( singleMapped ? slime.setObject() : slime.setArray() )
-                                             : ( singleMapped ? root.setObject("blocks") : root.setArray("blocks"));
-                encodeBlocks((MixedTensor) tensor, parent);
+                if (singleMapped) {
+                    encodeLabeledBlocks(mixed, target.apply("blocks").insertOBJECT(), options.hexForDensePart());
+                } else {
+                    encodeAddressedBlocks(mixed, target.apply("blocks").insertARRAY(), options.hexForDensePart());
+                }
             } else {
                 // default to standard cell address output
-                Cursor parent = root == null ? slime.setArray() : root.setArray("cells");
+                Cursor parent = target.apply("cells").insertARRAY();
                 encodeCells(tensor, parent);
             }
 
             return com.yahoo.slime.JsonFormat.toJsonBytes(slime);
         }
         else {
-            Cursor parent = root == null ? slime.setArray() : root.setArray("cells");
+            Cursor parent = target.apply("cells").insertARRAY();
             encodeCells(tensor, parent);
         }
         return com.yahoo.slime.JsonFormat.toJsonBytes(slime);
@@ -118,6 +149,114 @@ public class JsonFormat {
             addressObject.setString(type.dimensions().get(i).name(), address.label(i));
     }
 
+    private static final byte[] hexDigits = "0123456789ABCDEF".getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+
+    /** Two hex chars (as UTF-8 bytes) per byte value: hexPairs[b*2], hexPairs[b*2+1] */
+    private static final byte[] hexPairs = new byte[512];
+    static {
+        for (int b = 0; b < 256; b++) {
+            hexPairs[b * 2] = hexDigits[b >>> 4];
+            hexPairs[b * 2 + 1] = hexDigits[b & 0xF];
+        }
+    }
+
+
+    private static byte[] asHexString(IndexedTensor tensor) {
+        int denseSize = tensor.sizeAsInt();
+        TensorType.Value cellType = tensor.type().valueType();
+        byte[] buf = new byte[denseSize * hexCharsPerCell(cellType)];
+        int pos = 0;
+        switch (cellType) {
+            case DOUBLE:
+                for (int i = 0; i < denseSize; i++)
+                    pos = putHexDouble(buf, pos, tensor.get(i));
+                break;
+            case FLOAT:
+                for (int i = 0; i < denseSize; i++)
+                    pos = putHexFloat(buf, pos, tensor.getFloat(i));
+                break;
+            case BFLOAT16:
+                for (int i = 0; i < denseSize; i++)
+                    pos = putHexBFloat16(buf, pos, tensor.getFloat(i));
+                break;
+            case INT8:
+                for (int i = 0; i < denseSize; i++)
+                    pos = putHexByte(buf, pos, (byte) tensor.getFloat(i));
+                break;
+        }
+        return buf;
+    }
+
+    private static byte[] asHexString(double[] cells, TensorType.Value cellType) {
+        byte[] buf = new byte[cells.length * hexCharsPerCell(cellType)];
+        int pos = 0;
+        switch (cellType) {
+            case DOUBLE:
+                for (int i = 0; i < cells.length; i++)
+                    pos = putHexDouble(buf, pos, cells[i]);
+                break;
+            case FLOAT:
+                for (int i = 0; i < cells.length; i++)
+                    pos = putHexFloat(buf, pos, (float) cells[i]);
+                break;
+            case BFLOAT16:
+                for (int i = 0; i < cells.length; i++)
+                    pos = putHexBFloat16(buf, pos, (float) cells[i]);
+                break;
+            case INT8:
+                for (int i = 0; i < cells.length; i++)
+                    pos = putHexByte(buf, pos, (byte) (float) cells[i]);
+                break;
+        }
+        return buf;
+    }
+
+    private static int hexCharsPerCell(TensorType.Value cellType) {
+        return switch (cellType) {
+            case DOUBLE -> 16;
+            case FLOAT -> 8;
+            case BFLOAT16 -> 4;
+            case INT8 -> 2;
+        };
+    }
+
+    private static int putHexDouble(byte[] buf, int pos, double value) {
+        long bits = Double.doubleToRawLongBits(value);
+        pos = putHexByte(buf, pos, (int) (bits >>> 56));
+        pos = putHexByte(buf, pos, (int) (bits >>> 48));
+        pos = putHexByte(buf, pos, (int) (bits >>> 40));
+        pos = putHexByte(buf, pos, (int) (bits >>> 32));
+        pos = putHexByte(buf, pos, (int) (bits >>> 24));
+        pos = putHexByte(buf, pos, (int) (bits >>> 16));
+        pos = putHexByte(buf, pos, (int) (bits >>> 8));
+        return putHexByte(buf, pos, (int) bits);
+    }
+
+    private static int putHexFloat(byte[] buf, int pos, float value) {
+        int bits = Float.floatToRawIntBits(value);
+        pos = putHexByte(buf, pos, bits >>> 24);
+        pos = putHexByte(buf, pos, bits >>> 16);
+        pos = putHexByte(buf, pos, bits >>> 8);
+        return putHexByte(buf, pos, bits);
+    }
+
+    private static int putHexBFloat16(byte[] buf, int pos, float value) {
+        int bits = Float.floatToRawIntBits(value);
+        pos = putHexByte(buf, pos, bits >>> 24);
+        return putHexByte(buf, pos, bits >>> 16);
+    }
+
+    private static int putHexByte(byte[] buf, int pos, int byteValue) {
+        int b = (byteValue & 0xFF) * 2;
+        buf[pos] = hexPairs[b];
+        buf[pos + 1] = hexPairs[b + 1];
+        return pos + 2;
+    }
+
+    private static void encodeDenseValues(IndexedTensor tensor, Cursor target) {
+        encodeValues(tensor, target, new long[tensor.dimensionSizes().dimensions()], 0);
+    }
+
     private static void encodeValues(IndexedTensor tensor, Cursor cursor, long[] indexes, int dimension) {
         DimensionSizes sizes = tensor.dimensionSizes();
         if (indexes.length == 0) {
@@ -133,26 +272,38 @@ public class JsonFormat {
         }
     }
 
-    private static void encodeBlocks(MixedTensor tensor, Cursor cursor) {
-        var mappedDimensions = tensor.type().dimensions().stream().filter(TensorType.Dimension::isMapped)
-                .map(d -> TensorType.Dimension.mapped(d.name())).toList();
+    private static void encodeLabeledSubspace(String label, MixedTensor.DenseSubspace subspace, TensorType denseSubType, Cursor cursor, boolean hexForDensePart) {
+        if (hexForDensePart) {
+            cursor.setString(label, asHexString(subspace.cells, denseSubType.valueType()));
+        } else {
+            IndexedTensor denseSubspace = IndexedTensor.Builder.of(denseSubType, subspace.cells).build();
+            var target = cursor.setArray(label);
+            encodeDenseValues(denseSubspace, target);
+        }
+    }
+
+    private static void encodeLabeledBlocks(MixedTensor tensor, Cursor cursor, boolean hexForDensePart) {
+        TensorType denseSubType = tensor.type().indexedSubtype();
+        for (var subspace : tensor.getInternalDenseSubspaces()) {
+            String label = subspace.sparseAddress.label(0);
+            encodeLabeledSubspace(label, subspace, denseSubType, cursor, hexForDensePart);
+        }
+    }
+
+    private static void encodeAddressedBlocks(MixedTensor tensor, Cursor cursor, boolean hexForDensePart) {
+        var mappedDimensions = tensor.type().dimensions().stream()
+                .filter(TensorType.Dimension::isMapped)
+                .toList();
         if (mappedDimensions.isEmpty()) {
             throw new IllegalArgumentException("Should be ensured by caller");
         }
-
         // Create tensor type for mapped dimensions subtype
         TensorType mappedSubType = new TensorType.Builder(mappedDimensions).build();
         TensorType denseSubType = tensor.type().indexedSubtype();
         for (var subspace : tensor.getInternalDenseSubspaces()) {
-            IndexedTensor denseSubspace = IndexedTensor.Builder.of(denseSubType, subspace.cells).build();
-            if (mappedDimensions.size() == 1) {
-                encodeValues(denseSubspace, cursor.setArray(subspace.sparseAddress.label(0)), new long[denseSubspace.dimensionSizes().dimensions()], 0);
-            } else {
-                Cursor block = cursor.addObject();
-                encodeAddress(mappedSubType, subspace.sparseAddress, block.setObject("address"));
-                encodeValues(denseSubspace, block.setArray("values"), new long[denseSubspace.dimensionSizes().dimensions()], 0);
-            }
-
+            Cursor block = cursor.addObject();
+            encodeAddress(mappedSubType, subspace.sparseAddress, block.setObject("address"));
+            encodeLabeledSubspace("values", subspace, denseSubType, block, hexForDensePart);
         }
     }
 
@@ -227,9 +378,9 @@ public class JsonFormat {
         if ( ! (builder instanceof IndexedTensor.BoundBuilder indexedBuilder))
             throw new IllegalArgumentException("An array of values can only be used with a dense tensor. Use a map instead");
         if (values.type() == Type.STRING) {
-            double[] decoded = decodeHexString(values.asString(), builder.type().valueType());
-            if (decoded.length == 0)
+            if (values.asString().isEmpty())
                 throw new IllegalArgumentException("The values string does not contain any values");
+            double[] decoded = HexEncoding.decodeHex(values.asString(), indexedBuilder.type());
             for (int i = 0; i < decoded.length; i++) {
                 indexedBuilder.cellByDirectIndex(i, decoded[i]);
             }
@@ -294,85 +445,10 @@ public class JsonFormat {
     }
 
     private static void decodeSingleDimensionBlock(String key, Inspector value, MixedTensor.BoundBuilder mixedBuilder) {
-        if (value.type() != Type.ARRAY)
+        if (value.type() != Type.ARRAY && value.type() != Type.STRING)
             throw new IllegalArgumentException("Expected an item in a blocks array to be an array, not " + value.type());
         mixedBuilder.block(asAddress(key, mixedBuilder.type().mappedSubtype()),
                            decodeValuesInBlock(value, mixedBuilder));
-    }
-
-    private static byte decodeHex(String input, int index) {
-        int d = Character.digit(input.charAt(index), 16);
-        if (d < 0) {
-            throw new IllegalArgumentException("Invalid digit '"+input.charAt(index)+"' at index "+index+" in input "+input);
-        }
-        return (byte)d;
-    }
-
-    private static double[] decodeHexStringAsBytes(String input) {
-        int l = input.length() / 2;
-        double[] result = new double[l];
-        int idx = 0;
-        for (int i = 0; i < l; i++) {
-            byte v = decodeHex(input, idx++);
-            v <<= 4;
-            v += decodeHex(input, idx++);
-            result[i] = v;
-        }
-        return result;
-    }
-
-    private static double[] decodeHexStringAsBFloat16s(String input) {
-        int l = input.length() / 4;
-        double[] result = new double[l];
-        int idx = 0;
-        for (int i = 0; i < l; i++) {
-            int v = decodeHex(input, idx++);
-            v <<= 4; v += decodeHex(input, idx++);
-            v <<= 4; v += decodeHex(input, idx++);
-            v <<= 4; v += decodeHex(input, idx++);
-            v <<= 16;
-            result[i] = Float.intBitsToFloat(v);
-        }
-        return result;
-    }
-
-    private static double[] decodeHexStringAsFloats(String input) {
-        int l = input.length() / 8;
-        double[] result = new double[l];
-        int idx = 0;
-        for (int i = 0; i < l; i++) {
-            int v = 0;
-            for (int j = 0; j < 8; j++) {
-                v <<= 4;
-                v += decodeHex(input, idx++);
-            }
-            result[i] = Float.intBitsToFloat(v);
-        }
-        return result;
-    }
-
-    private static double[] decodeHexStringAsDoubles(String input) {
-        int l = input.length() / 16;
-        double[] result = new double[l];
-        int idx = 0;
-        for (int i = 0; i < l; i++) {
-            long v = 0;
-            for (int j = 0; j < 16; j++) {
-                v <<= 4;
-                v += decodeHex(input, idx++);
-            }
-            result[i] = Double.longBitsToDouble(v);
-        }
-        return result;
-    }
-
-    public static double[] decodeHexString(String input, TensorType.Value valueType) {
-        return switch (valueType) {
-            case INT8 -> decodeHexStringAsBytes(input);
-            case BFLOAT16 -> decodeHexStringAsBFloat16s(input);
-            case FLOAT -> decodeHexStringAsFloats(input);
-            case DOUBLE -> decodeHexStringAsDoubles(input);
-        };
     }
 
     private static void decodeMaybeNestedValuesInBlock(Inspector arrayField, double[] target, MutableInteger index) {
@@ -393,11 +469,11 @@ public class JsonFormat {
         if (valuesField.type() == Type.ARRAY) {
             decodeMaybeNestedValuesInBlock(valuesField, values, new MutableInteger(0));
         } else if (valuesField.type() == Type.STRING) {
-            double[] decoded = decodeHexString(valuesField.asString(), mixedBuilder.type().valueType());
-            if (decoded.length == 0) {
+            if (valuesField.asString().isEmpty()) {
                 throw new IllegalArgumentException("The block value string does not contain any values");
             }
-            System.arraycopy(decoded, 0, values, 0, decoded.length);
+            double[] decoded = HexEncoding.decodeHex(valuesField.asString(), mixedBuilder.type());
+            System.arraycopy(decoded, 0, values, 0, values.length);
         } else {
             throw new IllegalArgumentException("Expected a block to contain an array of values");
         }
@@ -432,7 +508,7 @@ public class JsonFormat {
     }
 
     public static double decodeNumberString(String input) {
-        String s = input.toLowerCase();
+        String s = input.toLowerCase(Locale.ROOT);
         if (s.equals("infinity") || s.equals("+infinity") || s.equals("inf") || s.equals("+inf")) {
             return Double.POSITIVE_INFINITY;
         }

@@ -1,12 +1,14 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "cf-handler.h"
+
 #include <vespa/config/common/configsystem.h>
 #include <vespa/config/common/exceptions.h>
+
 #include <vespa/config/subscription/configsubscriber.hpp>
 
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <vespa/log/log.h>
@@ -16,26 +18,28 @@ CfHandler::CfHandler() = default;
 
 CfHandler::~CfHandler() = default;
 
-void CfHandler::subscribe(const std::string & configId, std::chrono::milliseconds timeout) {
+void CfHandler::subscribe(const std::string& configId, std::chrono::milliseconds timeout) {
     _handle = _subscriber.subscribe<LogforwarderConfig>(configId, timeout);
 }
 
 namespace {
-bool isExecutable(const char *path) {
+bool isExecutable(const char* path) {
     struct stat statbuf;
     if (stat(path, &statbuf) != 0) {
         return false;
     }
-    if (! S_ISREG(statbuf.st_mode)) {
+    if (!S_ISREG(statbuf.st_mode)) {
         return false;
     }
     return ((statbuf.st_mode & S_IXOTH) != 0);
 }
 
-time_t lastModTime(const vespalib::string &fn) {
-    if (fn.empty()) return 0;
+time_t lastModTime(const std::string& fn) {
+    if (fn.empty())
+        return 0;
     struct stat info;
-    if (stat(fn.c_str(), &info) != 0) return 0;
+    if (stat(fn.c_str(), &info) != 0)
+        return 0;
     return info.st_mtime;
 }
 
@@ -53,16 +57,16 @@ void CfHandler::doConfigure() {
     }
 }
 
-vespalib::string CfHandler::clientCertFile() const {
-    static const vespalib::string certDir = "/var/lib/sia/certs/";
+std::string CfHandler::clientCertFile() const {
+    static const std::string certDir = "/var/lib/sia/certs/";
     if (_lastConfig && !_lastConfig->role.empty()) {
         return certDir + _lastConfig->role + ".cert.pem";
     }
     return "";
 }
 
-vespalib::string CfHandler::clientKeyFile() const {
-    static const vespalib::string certDir = "/var/lib/sia/keys/";
+std::string CfHandler::clientKeyFile() const {
+    static const std::string certDir = "/var/lib/sia/keys/";
     if (_lastConfig && !_lastConfig->role.empty()) {
         return certDir + _lastConfig->role + ".key.pem";
     }
@@ -78,9 +82,7 @@ bool CfHandler::certFileChanged() {
     return false;
 }
 
-void
-CfHandler::check()
-{
+void CfHandler::check() {
     if (_subscriber.nextConfigNow() || certFileChanged()) {
         doConfigure();
     }
@@ -88,14 +90,13 @@ CfHandler::check()
 
 constexpr std::chrono::milliseconds CONFIG_TIMEOUT_MS(30 * 1000);
 
-void
-CfHandler::start(const char *configId)
-{
+void CfHandler::start(const char* configId) {
     LOG(debug, "Reading configuration with id '%s'", configId);
     try {
         subscribe(configId, CONFIG_TIMEOUT_MS);
-    } catch (config::ConfigTimeoutException & ex) {
-        LOG(warning, "Timout getting config, please check your setup. Will exit and restart: %s", ex.getMessage().c_str());
+    } catch (config::ConfigTimeoutException& ex) {
+        LOG(warning, "Timeout getting config, please check your setup. Will exit and restart: %s",
+            ex.getMessage().c_str());
         std::_Exit(EXIT_FAILURE);
     } catch (config::InvalidConfigException& ex) {
         LOG(error, "Fatal: Invalid configuration, please check your setup: %s", ex.getMessage().c_str());

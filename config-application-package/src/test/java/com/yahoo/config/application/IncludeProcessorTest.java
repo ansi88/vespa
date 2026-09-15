@@ -75,6 +75,7 @@ public class IncludeProcessorTest {
                         <component bundle="foobundle" class="TestBar" deploy:environment="dev" id="bar"/>
                         <component bundle="foobundle" class="ProdBar" deploy:environment="prod" id="bar"/>
                         <component bundle="foobundle" class="ProdBaz" deploy:environment="prod" id="baz"/>
+                        <component bundle="foobundle" class="ProdXyzzyInAws" deploy:cloud="aws" id="xyzzy"/>
                         <nodes>
                             <node baseport="${qrs.port}" hostalias="node0"/>
                         </nodes>
@@ -113,6 +114,19 @@ public class IncludeProcessorTest {
         DocumentBuilder docBuilder = Xml.getPreprocessDocumentBuilder();
         new IncludeProcessor(app).process(docBuilder.parse(getServices(app)));
         fail("should fail by default to include a non-existent file");
+    }
+
+    @Test
+    public void testRecursiveIncludeFailsWithLimit() throws ParserConfigurationException, IOException, SAXException, TransformerException {
+        try {
+            File app = new File("src/test/resources/multienvapp_recursive_include");
+            DocumentBuilder docBuilder = Xml.getPreprocessDocumentBuilder();
+            new IncludeProcessor(app).process(docBuilder.parse(getServices(app)));
+            fail("should fail because of unbounded recursive include");
+        }
+        catch (IllegalArgumentException e) {
+            assertEquals("Too many includes, max 1000 includes are allowed", e.getMessage());
+        }
     }
 
     static File getServices(File app) {

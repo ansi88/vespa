@@ -20,6 +20,41 @@ search indexsettings {
         stemming: multiple
     }
 
+    field l1 type string {
+        linguistics {
+            profile: p1
+        }
+    }
+
+    field l2 type string {
+        linguistics {
+            profile {
+                search: p1
+                index: p2
+            }
+        }
+    }
+
+    field l3 type string {
+        linguistics {
+            profile: p1
+            tokens: alternatives
+        }
+    }
+
+    field l4 type string {
+        linguistics {
+            index {
+                profile: p2
+                tokens: original
+            }
+            search {
+                profile: p1
+                tokens: original-and-alternatives
+            }
+        }
+    }
+
   }
 
 }

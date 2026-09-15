@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace search::features {
 
@@ -13,11 +13,9 @@ namespace search::features {
  * The format of the weighted set is as follows:
  * {key1:weight1,key2:weight2,...,keyN:weightN}.
  */
-class WeightedSetParser
-{
+class WeightedSetParser {
 public:
-    template <typename OutputType>
-    static void parse(const vespalib::string &input, OutputType &output);
+    template <typename OutputType> static void parse(const std::string& input, OutputType& output);
 };
 
-}
+} // namespace search::features

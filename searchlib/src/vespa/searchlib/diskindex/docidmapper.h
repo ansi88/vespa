@@ -2,63 +2,57 @@
 #pragma once
 
 #include <vespa/vespalib/util/array.h>
-#include <vespa/vespalib/stllike/string.h>
-#include <cassert>
 
-namespace search { class BitVector; }
+#include <cassert>
+#include <cstdint>
+#include <span>
+#include <string>
+
+namespace search {
+class BitVector;
+}
 
 namespace search::diskindex {
 
 using SelectorArray = vespalib::Array<uint8_t>;
 
-class DocIdMapping
-{
+class DocIdMapping {
 public:
-    const SelectorArray *_selector; // External ownership
-    uint32_t _docIdLimit;
-    uint8_t _selectorId;
+    const SelectorArray* _selector; // External ownership
+    uint32_t             _docIdLimit;
+    uint8_t              _selectorId;
 
     DocIdMapping();
     void clear();
     void setup(uint32_t docIdLimit);
-    void setup(uint32_t docIdLimit, const SelectorArray *selector, uint8_t selectorId);
-    bool readDocIdLimit(const vespalib::string &dir);
+    void setup(uint32_t docIdLimit, const SelectorArray* selector, uint8_t selectorId);
+    bool readDocIdLimit(const std::string& dir);
+    std::span<const uint8_t> get_selector_view() const;
 };
 
-
-class DocIdMapper
-{
+class DocIdMapper {
 public:
-    const uint8_t *_selector;
-    uint32_t _docIdLimit; // Limit on legal input values
-    uint32_t _selectorLimit; // Limit on output
-    uint8_t  _selectorId;
+    std::span<const uint8_t> _selector;
+    uint32_t                 _docIdLimit; // Limit on legal input values
+    uint8_t                  _selectorId;
 
-    DocIdMapper()
-        : _selector(nullptr),
-          _docIdLimit(0u),
-          _selectorLimit(0),
-          _selectorId(0u)
-    { }
+    DocIdMapper() : _selector(), _docIdLimit(0u), _selectorId(0u) {}
 
-    void setup(const DocIdMapping &mapping) {
-        _selector = (mapping._selector != nullptr) ? mapping._selector->data() : nullptr;
+    void setup(const DocIdMapping& mapping) {
+        _selector = mapping.get_selector_view();
         _docIdLimit = mapping._docIdLimit;
-        _selectorLimit = (mapping._selector != nullptr) ? mapping._selector->size() : 0u;
         _selectorId = mapping._selectorId;
     }
 
-    static uint32_t noDocId() {
-        return static_cast<uint32_t>(-1);
-    }
+    static uint32_t noDocId() { return static_cast<uint32_t>(-1); }
 
     uint32_t mapDocId(uint32_t docId) const {
         assert(docId < _docIdLimit);
-        if (_selector != nullptr && (docId >= _selectorLimit || _selector[docId] != _selectorId)) {
+        if (_selector.data() != nullptr && (docId >= _selector.size() || _selector[docId] != _selectorId)) {
             docId = noDocId();
         }
         return docId;
     }
 };
 
-}
+} // namespace search::diskindex

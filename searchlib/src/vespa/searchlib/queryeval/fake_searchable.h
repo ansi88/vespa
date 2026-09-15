@@ -2,25 +2,25 @@
 
 #pragma once
 
-#include "searchable.h"
 #include "fake_result.h"
-#include <vespa/vespalib/stllike/string.h>
+#include "searchable.h"
+
 #include <map>
+#include <string>
 
 namespace search::queryeval {
 
 /**
  * A fake Searchable implementation.
  **/
-class FakeSearchable : public Searchable
-{
+class FakeSearchable : public Searchable {
 private:
-    using Key = std::pair<vespalib::string, vespalib::string>;
+    using Key = std::pair<std::string, std::string>;
     using Map = std::map<Key, FakeResult>;
 
-    vespalib::string _tag;
-    Map              _map;
-    bool             _is_attr;
+    std::string _tag;
+    Map         _map;
+    bool        _is_attr;
 
 public:
     /**
@@ -35,7 +35,7 @@ public:
      * @return this object for chaining
      * @param t tag
      **/
-    FakeSearchable &tag(const vespalib::string &t) {
+    FakeSearchable& tag(const std::string& t) {
         _tag = t;
         return *this;
     }
@@ -45,7 +45,7 @@ public:
      * will result in blueprints and search iterators exposing a
      * mocked attribute search context interface.
      **/
-    FakeSearchable &is_attr(bool value) {
+    FakeSearchable& is_attr(bool value) {
         _is_attr = value;
         return *this;
     }
@@ -59,16 +59,13 @@ public:
      * @param term search term in string form
      * @param result the fake result
      **/
-    FakeSearchable &addResult(const vespalib::string &field,
-                              const vespalib::string &term,
-                              const FakeResult &result);
+    FakeSearchable& addResult(const std::string& field, const std::string& term, const FakeResult& result);
 
     using Searchable::createBlueprint;
-    std::unique_ptr<queryeval::Blueprint>
-    createBlueprint(const IRequestContext & requestContext,
-                    const FieldSpec &field,
-                    const search::query::Node &term) override;
+    std::unique_ptr<queryeval::Blueprint> createBlueprint(const IRequestContext& requestContext,
+                                                          const FieldSpec& field, const search::query::Node& term,
+                                                          fef::MatchDataLayout& global_layout) override;
     ~FakeSearchable() override;
 };
 
-}
+} // namespace search::queryeval

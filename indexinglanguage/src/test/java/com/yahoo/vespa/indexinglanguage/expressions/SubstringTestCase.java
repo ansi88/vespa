@@ -9,7 +9,10 @@ import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * @author Simon Thoresen Hult
@@ -37,8 +40,8 @@ public class SubstringTestCase {
     public void requireThatExpressionCanBeVerified() {
         Expression exp = new SubstringExpression(6, 9);
         assertVerify(DataType.STRING, exp, DataType.STRING);
-        assertVerifyThrows(null, exp, "Expected string input, but no input is specified");
-        assertVerifyThrows(DataType.INT, exp, "Expected string input, got int");
+        assertVerifyThrows("Invalid expression 'substring 6 9': Expected string input, but no input is provided", null, exp);
+        assertVerifyThrows("Invalid expression 'substring 6 9': Expected string input, got int", DataType.INT, exp);
     }
 
     @Test
@@ -67,10 +70,10 @@ public class SubstringTestCase {
     @Test
     public void requireThatStringIsSliced() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new StringFieldValue("666999"));
+        ctx.setCurrentValue(new StringFieldValue("666999"));
         new SubstringExpression(2, 4).execute(ctx);
 
-        FieldValue val = ctx.getValue();
+        FieldValue val = ctx.getCurrentValue();
         assertTrue(val instanceof StringFieldValue);
         assertEquals("69", ((StringFieldValue)val).getString());
     }

@@ -2,9 +2,11 @@
 #pragma once
 
 #include "rpc_target_factory.h"
+
 #include <vespa/config/subscription/configuri.h>
-#include <vespa/vespalib/stllike/string.h>
+
 #include <memory>
+#include <string>
 
 class FNET_Transport;
 class FRT_Supervisor;
@@ -12,7 +14,7 @@ class FRT_Supervisor;
 namespace slobrok::api {
 class RegisterAPI;
 class MirrorAPI;
-}
+} // namespace slobrok::api
 
 namespace storage::rpc {
 
@@ -23,13 +25,14 @@ class SharedRpcResources {
     std::unique_ptr<slobrok::api::RegisterAPI> _slobrok_register;
     std::unique_ptr<slobrok::api::MirrorAPI>   _slobrok_mirror;
     std::unique_ptr<RpcTargetFactoryImpl>      _target_factory;
-    vespalib::string                           _hostname;
-    vespalib::string                           _handle;
+    std::string                                _hostname;
+    std::string                                _handle;
     int                                        _rpc_server_port;
     bool                                       _shutdown;
+
 public:
-    SharedRpcResources(const config::ConfigUri& config_uri, int rpc_server_port,
-                       size_t rpc_thread_pool_size, size_t rpc_events_before_wakeup);
+    SharedRpcResources(const config::ConfigUri& config_uri, int rpc_server_port, size_t rpc_thread_pool_size,
+                       size_t rpc_events_before_wakeup);
     ~SharedRpcResources();
 
     FRT_Supervisor& supervisor() noexcept { return *_orb; }
@@ -48,13 +51,13 @@ public:
     [[nodiscard]] int listen_port() const noexcept; // Only valid if server has been started
 
     // Hostname of host node is running on.
-    [[nodiscard]] const vespalib::string& hostname() const noexcept { return _hostname; }
-    [[nodiscard]] const vespalib::string handle() const noexcept { return _handle; }
+    [[nodiscard]] const std::string& hostname() const noexcept { return _hostname; }
+    [[nodiscard]] const std::string handle() const noexcept { return _handle; }
 
     const RpcTargetFactory& target_factory() const;
+
 private:
     void wait_until_slobrok_is_ready();
 };
 
-
-}
+} // namespace storage::rpc

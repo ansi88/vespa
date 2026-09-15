@@ -2,16 +2,15 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <cstdint>
+#include <string>
 
 namespace search::docsummary {
 
-class DocumentSummary
-{
+class DocumentSummary {
 public:
-    static bool readDocIdLimit(const vespalib::string &dir, uint32_t &docIdLimit);
-    static bool writeDocIdLimit(const vespalib::string &dir, uint32_t docIdLimit);
+    static bool readDocIdLimit(const std::string& dir, uint32_t& docIdLimit);
+    static bool writeDocIdLimit(const std::string& dir, uint32_t docIdLimit);
 };
 
-}
-
+} // namespace search::docsummary

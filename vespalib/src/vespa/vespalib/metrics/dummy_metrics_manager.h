@@ -1,14 +1,15 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <memory>
-#include <thread>
-#include <vespa/vespalib/stllike/string.h>
-#include "name_collection.h"
-#include "current_samples.h"
-#include "snapshots.h"
-#include "metrics_manager.h"
 #include "clock.h"
+#include "current_samples.h"
+#include "metrics_manager.h"
+#include "name_collection.h"
+#include "snapshots.h"
+
+#include <memory>
+#include <string>
+#include <thread>
 
 namespace vespalib::metrics {
 
@@ -17,10 +18,10 @@ namespace vespalib::metrics {
  * for unit tests where you don't care about
  * metrics.
  **/
-class DummyMetricsManager : public MetricsManager
-{
+class DummyMetricsManager : public MetricsManager {
 protected:
     DummyMetricsManager() noexcept {}
+
 public:
     ~DummyMetricsManager() override;
 
@@ -28,25 +29,15 @@ public:
         return std::shared_ptr<MetricsManager>(new DummyMetricsManager());
     }
 
-    Counter counter(const vespalib::string &, const vespalib::string &) override {
+    Counter counter(const std::string&, const std::string&) override {
         return Counter(shared_from_this(), MetricId(0));
     }
-    Gauge gauge(const vespalib::string &, const vespalib::string &) override {
-        return Gauge(shared_from_this(), MetricId(0));
-    }
+    Gauge gauge(const std::string&, const std::string&) override { return Gauge(shared_from_this(), MetricId(0)); }
 
-    Dimension dimension(const vespalib::string &) override {
-        return Dimension(0);
-    }
-    Label label(const vespalib::string &) override {
-        return Label(0);
-    }
-    PointBuilder pointBuilder(Point) override {
-        return PointBuilder(shared_from_this());
-    }
-    Point pointFrom(PointMap) override {
-        return Point(0);
-    }
+    Dimension dimension(const std::string&) override { return Dimension(0); }
+    Label label(const std::string&) override { return Label(0); }
+    PointBuilder pointBuilder(Point) override { return PointBuilder(shared_from_this()); }
+    Point pointFrom(PointMap) override { return Point(0); }
 
     Snapshot snapshot() override;
     Snapshot totalSnapshot() override;
@@ -57,4 +48,4 @@ public:
     void sample(Gauge::Measurement) override {}
 };
 
-}
+} // namespace vespalib::metrics

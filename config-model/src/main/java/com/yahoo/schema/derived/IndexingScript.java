@@ -6,6 +6,7 @@ import com.yahoo.schema.document.GeoPos;
 import com.yahoo.schema.document.ImmutableSDField;
 import com.yahoo.vespa.configdefinition.IlscriptsConfig;
 import com.yahoo.vespa.configdefinition.IlscriptsConfig.Ilscript.Builder;
+import com.yahoo.vespa.configdefinition.IlscriptsConfig.Ilscript.Complexfield;
 import com.yahoo.vespa.indexinglanguage.ExpressionConverter;
 import com.yahoo.vespa.indexinglanguage.ExpressionVisitor;
 import com.yahoo.vespa.indexinglanguage.expressions.AttributeExpression;
@@ -28,10 +29,11 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * An indexing language script derived from a schema. An indexing script contains a set of indexing
- * statements, organized in a composite structure of indexing code snippets.
+ * statements, organized in a composite structure of indexing expressions.
  *
  * @author bratseth
  */
@@ -39,6 +41,8 @@ public final class IndexingScript extends Derived {
 
     private final List<String> docFields = new ArrayList<>();
     private final List<Expression> expressions = new ArrayList<>();
+    /** Sorted to keep the derived config stable. */
+    private final Set<String> fastMapSearchFields = new TreeSet<>();
     private List<ImmutableSDField> fieldsSettingLanguage;
     private final boolean isStreaming;
 
@@ -61,6 +65,11 @@ public final class IndexingScript extends Derived {
 
         if (field.hasFullIndexingDocprocRights())
             docFields.add(field.getName());
+
+        // Must be collected before the returns below, as a map field always uses a map.
+        if (field.hasFastMapSearch()) {
+            fastMapSearchFields.add(field.getName());
+        }
 
         if (field.usesStructOrMap() && ! GeoPos.isAnyPos(field)) return; // unsupported
         if (fieldsSettingLanguage.size() == 1 && fieldsSettingLanguage.get(0).equals(field)) return; // Already added
@@ -94,6 +103,9 @@ public final class IndexingScript extends Derived {
         IlscriptsConfig.Ilscript.Builder ilscriptBuilder = new IlscriptsConfig.Ilscript.Builder();
         ilscriptBuilder.doctype(getName());
         ilscriptBuilder.docfield(docFields);
+        for (String fieldName : fastMapSearchFields) {
+            ilscriptBuilder.complexfield(e -> e.name(fieldName).why(Complexfield.Why.FAST_MAP_SEARCH));
+        }
         addContentInOrder(ilscriptBuilder);
         configBuilder.ilscript(ilscriptBuilder);
     }
@@ -104,7 +116,61 @@ public final class IndexingScript extends Derived {
         export(toDirectory, builder.build());
     }
 
+    private void addContentInOrder(IlscriptsConfig.Ilscript.Builder ilscriptBuilder) {
+        Set<String> touchedFields = new HashSet<>();
+        for (Expression expression : expressions) {
+            if (isStreaming) {
+                expression = expression.convertChildren(new DropTokenize());
+                expression = expression.convertChildren(new DropZcurve());
+            }
+            ilscriptBuilder.content(expression.toString());
+            FieldScanVisitor fieldFetcher = new FieldScanVisitor();
+            fieldFetcher.visit(expression);
+            touchedFields.addAll(fieldFetcher.touchedFields());
+        }
+        generateSyntheticStatementsForUntouchedFields(ilscriptBuilder, touchedFields);
+    }
+
+    private void generateSyntheticStatementsForUntouchedFields(Builder ilscriptBuilder, Set<String> touchedFields) {
+        Set<String> fieldsWithSyntheticStatements = new HashSet<>(docFields);
+        fieldsWithSyntheticStatements.removeAll(touchedFields);
+        List<String> orderedFields = new ArrayList<>(fieldsWithSyntheticStatements);
+        Collections.sort(orderedFields);
+        for (String fieldName : orderedFields) {
+            StatementExpression copyField = new StatementExpression(new InputExpression(fieldName),
+                    new PassthroughExpression(fieldName));
+            ilscriptBuilder.content(copyField.toString());
+        }
+    }
+
+    private static class FieldScanVisitor extends ExpressionVisitor {
+
+        List<String> touchedFields = new ArrayList<>();
+        List<String> candidates = new ArrayList<>();
+
+        @Override
+        protected void doVisit(Expression exp) {
+            if (exp instanceof OutputExpression) {
+                touchedFields.add(((OutputExpression) exp).getFieldName());
+            }
+            if (exp instanceof InputExpression) {
+                candidates.add(((InputExpression) exp).getFieldName());
+            }
+            if (exp instanceof ZCurveExpression) {
+                touchedFields.addAll(candidates);
+            }
+        }
+
+        Collection<String> touchedFields() {
+            Collection<String> output = touchedFields;
+            touchedFields = null; // deny re-use to try and avoid obvious bugs
+            return output;
+        }
+
+    }
+
     private static class DropTokenize extends ExpressionConverter {
+
         @Override
         protected boolean shouldConvert(Expression exp) {
             return exp instanceof TokenizeExpression;
@@ -114,10 +180,12 @@ public final class IndexingScript extends Derived {
         protected Expression doConvert(Expression exp) {
             return null;
         }
+
     }
 
     // for streaming, drop zcurve conversion to attribute with suffix
     private static class DropZcurve extends ExpressionConverter {
+
         private static final String zSuffix = "_zcurve";
         private static final int zSuffixLen = zSuffix.length();
         private boolean seenZcurve = false;
@@ -144,115 +212,12 @@ public final class IndexingScript extends Derived {
                 int len = orig.length();
                 if (len > zSuffixLen && orig.endsWith(zSuffix)) {
                     String fieldName = orig.substring(0, len - zSuffixLen);
-                    var result = new AttributeExpression(fieldName);
-                    return result;
+                    return new AttributeExpression(fieldName);
                 }
             }
             return exp;
         }
-    }
-
-    private void addContentInOrder(IlscriptsConfig.Ilscript.Builder ilscriptBuilder) {
-        ArrayList<Expression> later = new ArrayList<>();
-        Set<String> touchedFields = new HashSet<>();
-        for (Expression expression : expressions) {
-            if (isStreaming) {
-                expression = expression.convertChildren(new DropTokenize());
-                expression = expression.convertChildren(new DropZcurve());
-            }
-            if (modifiesSelf(expression) && ! setsLanguage(expression)) {
-                later.add(expression);
-            } else {
-                ilscriptBuilder.content(expression.toString());
-            }
-
-            FieldScanVisitor fieldFetcher = new FieldScanVisitor();
-            fieldFetcher.visit(expression);
-            touchedFields.addAll(fieldFetcher.touchedFields());
-        }
-        for (Expression exp : later) {
-            ilscriptBuilder.content(exp.toString());
-        }
-        generateSyntheticStatementsForUntouchedFields(ilscriptBuilder, touchedFields);
-    }
-
-    private void generateSyntheticStatementsForUntouchedFields(Builder ilscriptBuilder, Set<String> touchedFields) {
-        Set<String> fieldsWithSyntheticStatements = new HashSet<>(docFields);
-        fieldsWithSyntheticStatements.removeAll(touchedFields);
-        List<String> orderedFields = new ArrayList<>(fieldsWithSyntheticStatements);
-        Collections.sort(orderedFields);
-        for (String fieldName : orderedFields) {
-            StatementExpression copyField = new StatementExpression(new InputExpression(fieldName),
-                    new PassthroughExpression(fieldName));
-            ilscriptBuilder.content(copyField.toString());
-        }
-    }
-
-    private boolean setsLanguage(Expression expression) {
-        SetsLanguageVisitor visitor = new SetsLanguageVisitor();
-        visitor.visit(expression);
-        return visitor.setsLanguage;
-    }
-
-    private boolean modifiesSelf(Expression expression) {
-        ModifiesSelfVisitor visitor = new ModifiesSelfVisitor();
-        visitor.visit(expression);
-        return visitor.modifiesSelf();
-    }
-
-    private static class ModifiesSelfVisitor extends ExpressionVisitor {
-
-        private String inputField = null;
-        private String outputField = null;
-
-        public boolean modifiesSelf() { return outputField != null && outputField.equals(inputField); }
-
-        @Override
-        protected void doVisit(Expression expression) {
-            if (modifiesSelf()) return;
-
-            if (expression instanceof InputExpression) {
-                inputField = ((InputExpression) expression).getFieldName();
-            }
-            if (expression instanceof OutputExpression) {
-                outputField = ((OutputExpression) expression).getFieldName();
-            }
-        }
-    }
-
-    private static class SetsLanguageVisitor extends ExpressionVisitor {
-
-        boolean setsLanguage = false;
-
-        @Override
-        protected void doVisit(Expression expression) {
-            if (expression instanceof SetLanguageExpression)
-                setsLanguage = true;
-        }
 
     }
 
-    private static class FieldScanVisitor extends ExpressionVisitor {
-        List<String> touchedFields = new ArrayList<>();
-        List<String> candidates = new ArrayList<>();
-
-        @Override
-        protected void doVisit(Expression exp) {
-            if (exp instanceof OutputExpression) {
-                touchedFields.add(((OutputExpression) exp).getFieldName());
-            }
-            if (exp instanceof InputExpression) {
-                candidates.add(((InputExpression) exp).getFieldName());
-            }
-            if (exp instanceof ZCurveExpression) {
-                touchedFields.addAll(candidates);
-            }
-        }
-
-        Collection<String> touchedFields() {
-            Collection<String> output = touchedFields;
-            touchedFields = null; // deny re-use to try and avoid obvious bugs
-            return output;
-        }
-    }
 }

@@ -14,6 +14,7 @@ import com.yahoo.vespa.objects.ObjectPredicate;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * @author Simon Thoresen Hult
@@ -21,6 +22,8 @@ import java.util.Map;
 public final class SwitchExpression extends CompositeExpression {
 
     private final Map<String, Expression> cases = new LinkedHashMap<>();
+
+    /** The default expression, or null if none */
     private final Expression defaultExp;
 
     public <T extends Expression> SwitchExpression(Map<String, T> cases) {
@@ -28,10 +31,22 @@ public final class SwitchExpression extends CompositeExpression {
     }
 
     public <T extends Expression> SwitchExpression(Map<String, T> cases, Expression defaultExp) {
-        super(null);
         this.defaultExp = defaultExp;
         this.cases.putAll(cases);
     }
+
+    @Override
+    public boolean isMutating() { return false; }
+
+    public boolean isEmpty() {
+        return defaultExp == null && cases.isEmpty();
+    }
+
+    public Map<String, Expression> getCases() {
+        return Collections.unmodifiableMap(cases);
+    }
+
+    public Expression getDefaultExpression() { return defaultExp; }
 
     @Override
     public SwitchExpression convertChildren(ExpressionConverter converter) {
@@ -44,16 +59,35 @@ public final class SwitchExpression extends CompositeExpression {
         return new SwitchExpression(convertedCases, converter.branch().convert(defaultExp));
     }
 
-    public boolean isEmpty() {
-        return defaultExp == null && cases.isEmpty();
+    @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, DataType.STRING, context);
+
+        DataType outputType = defaultExp == null ? null : defaultExp.setInputType(inputType, context);
+        boolean outputNeverAssigned = true; // Needed to separate this null case from the "cannot be inferred" case
+        for (Expression expression : cases.values()) {
+            DataType expressionOutputType = expression.setInputType(inputType, context);
+            outputType = outputNeverAssigned ? expressionOutputType : mostGeneralOf(outputType, expressionOutputType);
+            outputNeverAssigned = false;
+        }
+        return outputType;
     }
 
-    public Map<String, Expression> getCases() {
-        return Collections.unmodifiableMap(cases);
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(outputType, context);
+
+        if (defaultExp != null)
+            setOutputType(outputType, defaultExp, context);
+        for (Expression expression : cases.values())
+            setOutputType(outputType, expression, context);
+        return DataType.STRING;
     }
 
-    public Expression getDefaultExpression() {
-        return defaultExp;
+    private void setOutputType(DataType outputType, Expression expression, TypeContext context) {
+        DataType inputType = expression.setOutputType(outputType, context);
+        if (inputType != null && ! DataType.STRING.isAssignableTo(inputType))
+            throw new VerificationException(this, "This inputs a string, but '" + expression + "' requires type " + inputType);
     }
 
     @Override
@@ -64,8 +98,15 @@ public final class SwitchExpression extends CompositeExpression {
     }
 
     @Override
+    protected void doResolve(TypeContext context) {
+        for (Expression exp : cases.values())
+            context.resolve(exp);
+        context.resolve(defaultExp);
+    }
+
+    @Override
     protected void doExecute(ExecutionContext context) {
-        FieldValue input = context.getValue();
+        FieldValue input = context.getCurrentValue();
         Expression exp = null;
         if (input != null) {
             if (!(input instanceof StringFieldValue)) {
@@ -80,7 +121,7 @@ public final class SwitchExpression extends CompositeExpression {
         if (exp != null) {
             exp.execute(context);
         }
-        context.setValue(input);
+        context.setCurrentValue(input);
     }
 
     @Override
@@ -89,28 +130,6 @@ public final class SwitchExpression extends CompositeExpression {
         for (Expression exp : cases.values()) {
             select(exp, predicate, operation);
         }
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        DataType input = context.getValueType();
-        if (input == null) {
-            throw new VerificationException(this, "Expected " + DataType.STRING.getName() + " input, but no input is specified");
-        }
-        if (input != DataType.STRING) {
-            throw new VerificationException(this, "Expected " + DataType.STRING.getName() + " input, got " +
-                                                  input.getName());
-        }
-        for (Expression exp : cases.values()) {
-            context.setValueType(input).execute(exp);
-        }
-        context.setValueType(input).execute(defaultExp);
-        context.setValueType(input);
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return null;
     }
 
     @Override
@@ -133,7 +152,7 @@ public final class SwitchExpression extends CompositeExpression {
     public boolean equals(Object obj) {
         if (!(obj instanceof SwitchExpression rhs)) return false;
         if (!cases.equals(rhs.cases)) return false;
-        if (!equals(defaultExp, rhs.defaultExp)) return false;
+        if (!Objects.equals(defaultExp, rhs.defaultExp)) return false;
         return true;
     }
 

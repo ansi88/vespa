@@ -5,13 +5,15 @@
 
 namespace document {
 
-namespace select { class VariableMap; }
+namespace select {
+class VariableMap;
+}
 
-class DocumentTypeRepo;
+class IDocumentTypeRepo;
 
 class DocumentCalculator {
 public:
-    DocumentCalculator(const DocumentTypeRepo& repo, const vespalib::string& expression);
+    DocumentCalculator(const IDocumentTypeRepo& repo, const std::string& expression);
     ~DocumentCalculator();
     double evaluate(const Document& doc, std::unique_ptr<select::VariableMap> variables);
 
@@ -19,5 +21,4 @@ private:
     std::unique_ptr<select::Node> _selectionNode;
 };
 
-}
-
+} // namespace document

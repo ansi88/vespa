@@ -17,27 +17,32 @@ public final class ConstantExpression extends Expression {
     private final FieldValue value;
 
     public ConstantExpression(FieldValue value) {
-        super(null);
         this.value = Objects.requireNonNull(value);
     }
 
-    public FieldValue getValue() {
-        return value;
+    @Override
+    public boolean requiresInput() { return false; }
+
+    public FieldValue getValue() { return value; }
+
+    @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
+        return value.getDataType();
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        if (outputType != null && ! value.getDataType().isAssignableTo(outputType))
+            throw new VerificationException(this, "Produces type " + value.getDataType().getName() + ", but type " +
+                                            outputType.getName() + " is required");
+        super.setOutputType(outputType, context);
+        return AnyDataType.instance;
     }
 
     @Override
     protected void doExecute(ExecutionContext context) {
-        context.setValue(value);
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(value.getDataType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return value.getDataType();
+        context.setCurrentValue(value);
     }
 
     @Override

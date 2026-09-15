@@ -2,13 +2,17 @@
 
 #include "juniper_separators.h"
 
+#include <vespa/vespalib/util/casts.h>
+
 namespace juniper::separators {
 
-vespalib::string interlinear_annotation_anchor_string("\xef\xbf\xb9"); // U+FFF9
-vespalib::string interlinear_annotation_separator_string("\xef\xbf\xba"); // U+FFFA
-vespalib::string interlinear_annotation_terminator_string("\xef\xbf\xbb"); // U+FFFB
-vespalib::string group_separator_string("\x1d");
-vespalib::string record_separator_string("\x1e");
-vespalib::string unit_separator_string("\x1f");
+using namespace vespalib;
 
-}
+std::string interlinear_annotation_anchor_string(u8"\uFFF9"_C);     // U+FFF9
+std::string interlinear_annotation_separator_string(u8"\uFFFA"_C);  // U+FFFA
+std::string interlinear_annotation_terminator_string(u8"\uFFFB"_C); // U+FFFB
+std::string group_separator_string("\x1d");
+std::string record_separator_string("\x1e");
+std::string unit_separator_string("\x1f");
+
+} // namespace juniper::separators

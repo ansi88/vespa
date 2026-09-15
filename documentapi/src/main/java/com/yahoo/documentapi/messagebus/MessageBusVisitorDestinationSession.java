@@ -5,9 +5,13 @@ import com.yahoo.documentapi.AckToken;
 import com.yahoo.documentapi.VisitorDestinationParameters;
 import com.yahoo.documentapi.VisitorDestinationSession;
 import com.yahoo.documentapi.VisitorResponse;
-import com.yahoo.documentapi.messagebus.protocol.*;
+import com.yahoo.documentapi.messagebus.protocol.DocumentMessage;
 import java.util.logging.Level;
-import com.yahoo.messagebus.*;
+import com.yahoo.messagebus.DestinationSession;
+import com.yahoo.messagebus.Message;
+import com.yahoo.messagebus.MessageBus;
+import com.yahoo.messagebus.MessageHandler;
+import com.yahoo.messagebus.Reply;
 
 import java.util.logging.Logger;
 
@@ -28,12 +32,12 @@ import java.util.logging.Logger;
  *
  * @author Thomas Gundersen
  */
-public class MessageBusVisitorDestinationSession implements VisitorDestinationSession, MessageHandler
+public final class MessageBusVisitorDestinationSession implements VisitorDestinationSession, MessageHandler
 {
     private static final Logger log = Logger.getLogger(MessageBusVisitorDestinationSession.class.getName());
 
     private DestinationSession session;
-    private VisitorDestinationParameters params;
+    private final VisitorDestinationParameters params;
 
     /**
      * Creates a message bus visitor destination session.

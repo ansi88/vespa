@@ -15,31 +15,14 @@ import java.util.Objects;
  *
  * @author Tony Vaagenes
  */
-public final class FileReference {
+public record FileReference(String value) {
 
-    private final String value;
-
-    public FileReference(String value) {
+    public FileReference {
+        Objects.requireNonNull(value);
+        if (containsControlCharacter(value))
+            throw new IllegalArgumentException("File reference value may not contain control characters, but got '" + value + "'");
         if (Path.of(value).normalize().startsWith(".."))
             throw new IllegalArgumentException("Path may not start with '..' but got '" + value + "'");
-        this.value = Objects.requireNonNull(value);
-    }
-
-    public String value() {
-        return value;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        FileReference that = (FileReference) o;
-        return value.equals(that.value);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(value);
     }
 
     @Override
@@ -67,6 +50,17 @@ public final class FileReference {
         if (! file.exists())
             throw new IllegalArgumentException("File '" + file.getAbsolutePath() + "' does not exist.");
         return new FileReference(file.getPath());
+    }
+
+    /**
+     * Returns true if the string contains any control characters (0x00-0x1F and 0x7F), false otherwise.
+     */
+    private static boolean containsControlCharacter(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 || c == 0x7F) return true;
+        }
+        return false;
     }
 
 }

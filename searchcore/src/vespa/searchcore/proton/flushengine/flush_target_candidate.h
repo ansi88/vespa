@@ -2,9 +2,9 @@
 
 #pragma once
 
-#include "prepare_restart_flush_strategy.h"
+#include "prepare_restart_costs.h"
+
 #include <memory>
-#include <vespa/searchlib/common/serialnum.h>
 
 namespace proton {
 
@@ -13,25 +13,22 @@ class FlushContext;
 /**
  * Class describing a flush target candidate for the prepare restart flush strategy.
  */
-class FlushTargetCandidate
-{
-    std::shared_ptr<FlushContext> _flush_context;
-    double                        _replay_operation_cost;
-    search::SerialNum             _flushed_serial;
-    search::SerialNum             _current_serial;
-    double                        _replay_cost;
-    uint64_t                      _approx_bytes_to_write_to_disk;
-    double                        _write_cost;
-    bool                          _always_flush;
+class FlushTargetCandidate {
+    std::shared_ptr<FlushContext>    _flush_context;
+    search::SerialNum                _flushed_serial;
+    flushengine::PrepareRestartCosts _prepare_restart_costs;
+    bool                             _always_flush;
 
-    using Config = PrepareRestartFlushStrategy::Config;
 public:
-    FlushTargetCandidate(std::shared_ptr<FlushContext> flush_context, search::SerialNum current_serial, const Config &cfg);
+    FlushTargetCandidate(std::shared_ptr<FlushContext> flush_context, search::SerialNum current_serial,
+                         const flushengine::PrepareRestartCostsConfig& cfg) noexcept;
     ~FlushTargetCandidate();
-    const std::shared_ptr<FlushContext> &get_flush_context() const { return _flush_context; }
-    search::SerialNum  get_flushed_serial() const { return _flushed_serial; }
-    double get_write_cost() const { return _write_cost; }
-    bool get_always_flush() const { return _always_flush; }
+    [[nodiscard]] const std::shared_ptr<FlushContext>& get_flush_context() const noexcept { return _flush_context; }
+    [[nodiscard]] search::SerialNum get_flushed_serial() const noexcept { return _flushed_serial; }
+    [[nodiscard]] double replay_cost() const noexcept { return _prepare_restart_costs.replay_cost(); }
+    [[nodiscard]] double get_write_cost() const noexcept { return _prepare_restart_costs.write_cost(); }
+    [[nodiscard]] double get_read_cost() const noexcept { return _prepare_restart_costs.read_cost(); }
+    [[nodiscard]] bool get_always_flush() const noexcept { return _always_flush; }
 };
 
-}
+} // namespace proton

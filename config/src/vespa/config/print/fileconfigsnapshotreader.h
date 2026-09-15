@@ -2,7 +2,8 @@
 #pragma once
 
 #include "configsnapshotreader.h"
-#include <vespa/vespalib/stllike/string.h>
+
+#include <string>
 
 namespace config {
 
@@ -11,7 +12,7 @@ namespace config {
  */
 class FileConfigSnapshotReader : public ConfigSnapshotReader {
 public:
-    FileConfigSnapshotReader(const vespalib::string & fileName);
+    FileConfigSnapshotReader(const std::string& fileName);
 
     /**
      * Read a config snapshot.
@@ -19,9 +20,9 @@ public:
      * @return Snapshot containing the configs.
      */
     ConfigSnapshot read() override;
+
 private:
-    const vespalib::string _fileName;
+    const std::string _fileName;
 };
 
 } // namespace config
-

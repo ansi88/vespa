@@ -9,7 +9,11 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * @author Simon Thoresen Hult
@@ -33,10 +37,7 @@ public class RandomTestCase {
 
     @Test
     public void requireThatExpressionCanBeVerified() {
-        Expression exp = new RandomExpression();
-        assertVerify(null, exp, DataType.INT);
-        assertVerify(DataType.INT, exp, DataType.INT);
-        assertVerify(DataType.STRING, exp, DataType.INT);
+        assertVerify(AnyDataType.instance, new RandomExpression(), DataType.INT);
     }
 
     @Test
@@ -45,7 +46,7 @@ public class RandomTestCase {
             ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
             new RandomExpression(69).execute(ctx);
 
-            FieldValue val = ctx.getValue();
+            FieldValue val = ctx.getCurrentValue();
             assertTrue(val instanceof IntegerFieldValue);
             assertTrue(((IntegerFieldValue)val).getInteger() < 69);
         }
@@ -54,10 +55,10 @@ public class RandomTestCase {
     @Test
     public void requireThatInputValueIsParsedAsMaxIfNoneIsConfigured() {
         for (int i = 0; i < 666; ++i) {
-            ExecutionContext ctx = new ExecutionContext().setValue(new IntegerFieldValue(69));
+            ExecutionContext ctx = new ExecutionContext().setCurrentValue(new IntegerFieldValue(69));
             new RandomExpression().execute(ctx);
 
-            FieldValue val = ctx.getValue();
+            FieldValue val = ctx.getCurrentValue();
             assertTrue(val instanceof IntegerFieldValue);
             assertTrue(((IntegerFieldValue)val).getInteger() < 69);
         }
@@ -72,7 +73,7 @@ public class RandomTestCase {
 
         }
         try {
-            new RandomExpression().execute(new ExecutionContext().setValue(new StringFieldValue("foo")));
+            new RandomExpression().execute(new ExecutionContext().setCurrentValue(new StringFieldValue("foo")));
             fail();
         } catch (NumberFormatException e) {
 

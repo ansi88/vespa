@@ -5,13 +5,17 @@ vespa_add_library(searchlib_features OBJECT
     array_parser.cpp
     attributefeature.cpp
     attributematchfeature.cpp
+    average_field_length_feature.cpp
     bm25_feature.cpp
+    bm25_for_labels_feature.cpp
+    bm25_utils.cpp
     closenessfeature.cpp
     closest_feature.cpp
     constant_feature.cpp
     debug_attribute_wait.cpp
     debug_wait.cpp
     dense_tensor_attribute_executor.cpp
+    dequantizing_tensor_attribute_executor.cpp
     direct_tensor_attribute_executor.cpp
     distance_calculator_bundle.cpp
     distancefeature.cpp
@@ -19,12 +23,18 @@ vespa_add_library(searchlib_features OBJECT
     dotproductfeature.cpp
     element_completeness_feature.cpp
     element_similarity_feature.cpp
+    elementwise_blueprint.cpp
+    elementwise_bm25_blueprint.cpp
+    elementwise_bm25_executor.cpp
+    elementwise_output.cpp
+    elementwise_utils.cpp
     euclidean_distance_feature.cpp
     fieldinfofeature.cpp
     fieldlengthfeature.cpp
     fieldmatchfeature.cpp
     fieldtermmatchfeature.cpp
     firstphasefeature.cpp
+    first_phase_max_feature.cpp
     first_phase_rank_feature.cpp
     first_phase_rank_lookup.cpp
     flow_completeness_feature.cpp
@@ -36,6 +46,7 @@ vespa_add_library(searchlib_features OBJECT
     item_raw_score_feature.cpp
     jarowinklerdistancefeature.cpp
     matchcountfeature.cpp
+    matches_for_labels_feature.cpp
     matchesfeature.cpp
     matchfeature.cpp
     max_reduce_prod_join_replacer.cpp
@@ -46,8 +57,10 @@ vespa_add_library(searchlib_features OBJECT
     nativeproximityfeature.cpp
     nativerankfeature.cpp
     nowfeature.cpp
+    num_docs_indexed_feature.cpp
     onnx_feature.cpp
     proximityfeature.cpp
+    query_term_document_frequency_feature.cpp
     querycompletenessfeature.cpp
     queryfeature.cpp
     queryterm.cpp
@@ -64,6 +77,8 @@ vespa_add_library(searchlib_features OBJECT
     tensor_attribute_executor.cpp
     tensor_factory_blueprint.cpp
     tensor_from_labels_feature.cpp
+    tensor_from_labels_with_offset_feature.cpp
+    tensor_from_structs_feature.cpp
     tensor_from_weighted_set_feature.cpp
     term_field_md_feature.cpp
     termdistancecalculator.cpp

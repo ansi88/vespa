@@ -44,9 +44,9 @@ public class RpcInvokerFactory extends InvokerFactory {
     @Override
     public FillInvoker createFillInvoker(VespaBackend searcher, Result result) {
         Query query = result.getQuery();
-
         boolean summaryNeedsQuery = searcher.summaryNeedsQuery(query);
         return new RpcProtobufFillInvoker(rpcResourcePool, compressor, searcher.getDocumentDatabase(query),
                                           searcher.getServerId(), decodeType, summaryNeedsQuery);
     }
+
 }

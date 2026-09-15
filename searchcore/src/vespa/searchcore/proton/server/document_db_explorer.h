@@ -11,8 +11,7 @@ class DocumentDB;
 /**
  * Class used to explore the state of a document database and its components.
  */
-class DocumentDBExplorer : public vespalib::StateExplorer
-{
+class DocumentDBExplorer : public vespalib::StateExplorer {
 private:
     std::shared_ptr<DocumentDB> _docDb;
 
@@ -20,8 +19,8 @@ public:
     DocumentDBExplorer(std::shared_ptr<DocumentDB> docDb);
     ~DocumentDBExplorer() override;
 
-    void get_state(const vespalib::slime::Inserter &inserter, bool full) const override;
-    std::vector<vespalib::string> get_children_names() const override;
+    void get_state(const vespalib::slime::Inserter& inserter, bool full) const override;
+    std::vector<std::string> get_children_names() const override;
     std::unique_ptr<vespalib::StateExplorer> get_child(std::string_view name) const override;
 };
 

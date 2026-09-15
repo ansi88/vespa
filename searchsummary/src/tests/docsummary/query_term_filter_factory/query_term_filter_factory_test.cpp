@@ -14,17 +14,15 @@ using FieldSet = Schema::FieldSet;
 
 class QueryTermFilterFactoryTest : public testing::Test {
     std::unique_ptr<IQueryTermFilterFactory> _factory;
-    Schema _schema;
+    Schema                                   _schema;
 
 protected:
     QueryTermFilterFactoryTest();
     ~QueryTermFilterFactoryTest() override;
 
-    void make_factory() {
-        _factory = std::make_unique<QueryTermFilterFactory>(_schema);
-    }
+    void make_factory() { _factory = std::make_unique<QueryTermFilterFactory>(_schema); }
 
-    bool check_view(const vespalib::string& view, const vespalib::string& summary_field) {
+    bool check_view(const std::string& view, const std::string& summary_field) {
         if (!_factory) {
             make_factory();
         }
@@ -32,7 +30,7 @@ protected:
         return query_term_filter->use_view(view);
     }
 
-    void add_field_set(const vespalib::string& field_set_name, const std::vector<vespalib::string>& field_names) {
+    void add_field_set(const std::string& field_set_name, const std::vector<std::string>& field_names) {
         FieldSet field_set(field_set_name);
         for (auto& field_name : field_names) {
             field_set.addField(field_name);
@@ -42,24 +40,18 @@ protected:
     }
 };
 
-
-QueryTermFilterFactoryTest::QueryTermFilterFactoryTest()
-    : testing::Test(),
-      _factory()
-{
+QueryTermFilterFactoryTest::QueryTermFilterFactoryTest() : testing::Test(), _factory() {
 }
 
 QueryTermFilterFactoryTest::~QueryTermFilterFactoryTest() = default;
 
-TEST_F(QueryTermFilterFactoryTest, empty_schema)
-{
+TEST_F(QueryTermFilterFactoryTest, empty_schema) {
     EXPECT_TRUE(check_view("foo", "foo"));
     EXPECT_FALSE(check_view("bar", "foo"));
     EXPECT_FALSE(check_view("foo", "bar"));
 }
 
-TEST_F(QueryTermFilterFactoryTest, field_set_is_checked)
-{
+TEST_F(QueryTermFilterFactoryTest, field_set_is_checked) {
     add_field_set("ab", {"cd", "de"});
     add_field_set("gh", {"cd"});
     add_field_set("default", {"de"});

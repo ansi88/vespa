@@ -7,7 +7,6 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
-import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
@@ -26,18 +25,16 @@ public class ThisTestCase {
 
     @Test
     public void requireThatExpressionCanBeVerified() {
-        Expression exp = new ThisExpression();
-        assertVerify(DataType.INT, exp, DataType.INT);
-        assertVerify(DataType.STRING, exp, DataType.STRING);
-        assertVerifyThrows(null, exp, "Expected any input, but no input is specified");
+        assertVerify(DataType.INT, new ThisExpression(), DataType.INT);
+        assertVerify(DataType.STRING, new ThisExpression(), DataType.STRING);
     }
 
     @Test
     public void requireThatValueIsPreserved() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new StringFieldValue("69"));
+        ctx.setCurrentValue(new StringFieldValue("69"));
         new ThisExpression().execute(ctx);
 
-        assertEquals(new StringFieldValue("69"), ctx.getValue());
+        assertEquals(new StringFieldValue("69"), ctx.getCurrentValue());
     }
 }

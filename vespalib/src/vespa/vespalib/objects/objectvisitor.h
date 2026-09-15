@@ -1,7 +1,7 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib {
 
@@ -13,8 +13,7 @@ namespace vespalib {
  * of various types into invocations of the basic interface defined by
  * this class.
  **/
-class ObjectVisitor
-{
+class ObjectVisitor {
 public:
     /**
      * Open a (sub-)structure
@@ -85,4 +84,3 @@ public:
 };
 
 } // namespace vespalib
-

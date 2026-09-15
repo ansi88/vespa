@@ -16,33 +16,33 @@ public final class NowExpression extends Expression {
     }
 
     public NowExpression(Timer timer) {
-        super(null);
         this.timer = timer;
     }
 
-    public Timer getTimer() {
-        return timer;
-    }
+    @Override
+    public boolean requiresInput() { return false; }
+
+    public Timer getTimer() { return timer; }
 
     @Override
-    protected void doExecute(ExecutionContext context) {
-        context.setValue(new LongFieldValue(timer.currentTimeSeconds()));
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
         return DataType.LONG;
     }
 
     @Override
-    public String toString() {
-        return "now";
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(DataType.LONG, outputType, null, context);
+        return AnyDataType.instance;
     }
+
+    @Override
+    protected void doExecute(ExecutionContext context) {
+        context.setCurrentValue(new LongFieldValue(timer.currentTimeSeconds()));
+    }
+
+    @Override
+    public String toString() { return "now"; }
 
     @Override
     public boolean equals(Object obj) {
@@ -70,6 +70,7 @@ public final class NowExpression extends Expression {
         public long currentTimeSeconds() {
             return System.currentTimeMillis() / 1000;
         }
+
     }
 
 }

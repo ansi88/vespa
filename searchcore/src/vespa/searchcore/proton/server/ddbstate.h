@@ -1,10 +1,10 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <atomic>
-#include <mutex>
 #include <condition_variable>
+#include <mutex>
+#include <string>
 #include <vector>
 
 namespace proton {
@@ -16,14 +16,14 @@ namespace proton {
  * Note that SHUTDOWN state can be entered from almost any state.
  */
 
-class DDBState
-{
+class DDBState {
 public:
     enum class State {
         CONSTRUCT,
         LOAD,
         REPLAY_TRANSACTION_LOG,
         REDO_REPROCESS,
+        DOC_STORE_VALIDATION,
         APPLY_LIVE_CONFIG,
         REPROCESS,
         ONLINE,
@@ -31,23 +31,26 @@ public:
         DEAD
     };
 
-    enum class ConfigState {
-        OK,
-        NEED_RESTART
-    };
-private:
+    enum class ConfigState { OK, NEED_RESTART };
 
+    using time_point = std::chrono::system_clock::time_point;
+
+private:
     std::atomic<State>       _state;
     std::atomic<ConfigState> _configState;
 
     using Mutex = std::mutex;
     using Guard = std::lock_guard<Mutex>;
     using GuardLock = std::unique_lock<Mutex>;
-    Mutex     _lock;  // protects state transition
-    std::condition_variable       _cond;
+    Mutex                   _lock; // protects state transition
+    std::condition_variable _cond;
 
-    static std::vector<vespalib::string> _stateNames;
-    static std::vector<vespalib::string> _configStateNames;
+    std::atomic<time_point> _load_time;
+    std::atomic<time_point> _online_time;
+    std::atomic<time_point> _replay_time;
+
+    static std::vector<std::string> _stateNames;
+    static std::vector<std::string> _configStateNames;
 
     void set_state(State state) noexcept { _state.store(state, std::memory_order_release); }
 
@@ -58,18 +61,19 @@ public:
     /**
      * Try to enter LOAD state.  Fail and return false if document db is
      * being shut down.
-     */ 
+     */
     bool enterLoadState();
     bool enterReplayTransactionLogState();
     bool enterRedoReprocessState();
+    bool enter_doc_store_validation_state();
     bool enterApplyLiveConfigState();
     bool enterReprocessState();
     bool enterOnlineState();
     void enterShutdownState();
     void enterDeadState();
     State getState() const noexcept { return _state.load(std::memory_order_acquire); }
-    static vespalib::string getStateString(State state);
-    
+    static std::string getStateString(State state);
+
     bool getClosed() const noexcept {
         State state(getState());
         return state >= State::SHUTDOWN;
@@ -84,11 +88,9 @@ public:
         State state(getState());
         return state == State::ONLINE;
     }
-    
-    static bool getDelayedConfig(ConfigState state) noexcept {
-        return state != ConfigState::OK;
-    }
-    
+
+    static bool getDelayedConfig(ConfigState state) noexcept { return state != ConfigState::OK; }
+
     bool getDelayedConfig() const noexcept {
         ConfigState state(getConfigState());
         return getDelayedConfig(state);
@@ -101,9 +103,15 @@ public:
 
     void clearDelayedConfig();
     ConfigState getConfigState() const noexcept { return _configState.load(std::memory_order_relaxed); }
-    static vespalib::string getConfigStateString(ConfigState configState);
+    static std::string getConfigStateString(ConfigState configState);
     void setConfigState(ConfigState newConfigState);
     void waitForOnlineState();
+
+    time_point get_load_time() const { return _load_time; }
+
+    time_point get_replay_time() const { return _replay_time; }
+
+    time_point get_online_time() const { return _online_time; }
 };
 
 } // namespace proton

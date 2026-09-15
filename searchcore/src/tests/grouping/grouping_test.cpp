@@ -1,21 +1,25 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
-#include <vespa/searchlib/aggregation/grouping.h>
-#include <vespa/searchlib/aggregation/sumaggregationresult.h>
+#include <vespa/document/datatype/documenttype.h>
 #include <vespa/searchcommon/attribute/iattributevector.h>
-#include <vespa/searchlib/expression/attributenode.h>
-#include <vespa/searchlib/expression/integerresultnode.h>
-#include <vespa/searchlib/attribute/extendableattributes.h>
 #include <vespa/searchcore/grouping/groupingcontext.h>
 #include <vespa/searchcore/grouping/groupingmanager.h>
 #include <vespa/searchcore/grouping/groupingsession.h>
 #include <vespa/searchcore/proton/matching/sessionmanager.h>
+#include <vespa/searchlib/aggregation/grouping.h>
+#include <vespa/searchlib/aggregation/maxaggregationresult.h>
+#include <vespa/searchlib/aggregation/minaggregationresult.h>
+#include <vespa/searchlib/aggregation/sumaggregationresult.h>
+#include <vespa/searchlib/attribute/extendableattributes.h>
 #include <vespa/searchlib/common/allocatedbitvector.h>
+#include <vespa/searchlib/expression/attributenode.h>
+#include <vespa/searchlib/expression/integerresultnode.h>
 #include <vespa/searchlib/test/mock_attribute_context.h>
-#include <vespa/document/datatype/documenttype.h>
+#include <vespa/vespalib/gtest/gtest.h>
 #include <vespa/vespalib/util/testclock.h>
+
 #include <iostream>
-#include <vespa/vespalib/testkit/test_kit.h>
+
 #include <vespa/log/log.h>
 LOG_SETUP("grouping_test");
 
@@ -24,10 +28,10 @@ using namespace search::aggregation;
 using namespace search::expression;
 using namespace search::grouping;
 using namespace search;
-using search::attribute::test::MockAttributeContext;
 using proton::matching::SessionManager;
-using vespalib::steady_time;
+using search::attribute::test::MockAttributeContext;
 using vespalib::duration;
+using vespalib::steady_time;
 
 //-----------------------------------------------------------------------------
 
@@ -36,8 +40,8 @@ const uint32_t NUM_DOCS = 1000;
 //-----------------------------------------------------------------------------
 
 struct MyWorld {
-    MockAttributeContext attributeContext;
-    document::DocumentType documentType;
+    MockAttributeContext       attributeContext;
+    document::DocumentType     documentType;
     search::AllocatedBitVector bv;
 
     MyWorld();
@@ -46,15 +50,11 @@ struct MyWorld {
 
 MyWorld::~MyWorld() = default;
 
-MyWorld::MyWorld()
-    : attributeContext(),
-      documentType("test"),
-      bv(NUM_DOCS+1)
-{
+MyWorld::MyWorld() : attributeContext(), documentType("test"), bv(NUM_DOCS + 1) {
     bv.setInterval(0, NUM_DOCS);
     // attribute context
     {
-        auto attr = std::make_shared<SingleInt32ExtAttribute>("attr0");
+        auto                   attr = std::make_shared<SingleInt32ExtAttribute>("attr0");
         AttributeVector::DocId docid;
         for (uint32_t i = 0; i < NUM_DOCS; ++i) {
             attr->addDoc(docid);
@@ -64,7 +64,7 @@ MyWorld::MyWorld()
         attributeContext.add(attr);
     }
     {
-        auto attr = std::make_shared<SingleInt32ExtAttribute>("attr1");
+        auto                   attr = std::make_shared<SingleInt32ExtAttribute>("attr1");
         AttributeVector::DocId docid;
         for (uint32_t i = 0; i < NUM_DOCS; ++i) {
             attr->addDoc(docid);
@@ -74,7 +74,7 @@ MyWorld::MyWorld()
         attributeContext.add(attr);
     }
     {
-        auto attr = std::make_shared<SingleInt32ExtAttribute>("attr2");
+        auto                   attr = std::make_shared<SingleInt32ExtAttribute>("attr2");
         AttributeVector::DocId docid;
         for (uint32_t i = 0; i < NUM_DOCS; ++i) {
             attr->addDoc(docid);
@@ -84,7 +84,7 @@ MyWorld::MyWorld()
         attributeContext.add(attr);
     }
     {
-        auto attr = std::make_shared<SingleInt32ExtAttribute>("attr3");
+        auto                   attr = std::make_shared<SingleInt32ExtAttribute>("attr3");
         AttributeVector::DocId docid;
         for (uint32_t i = 0; i < NUM_DOCS; ++i) {
             attr->addDoc(docid);
@@ -93,14 +93,13 @@ MyWorld::MyWorld()
         assert(docid + 1 == NUM_DOCS);
         attributeContext.add(attr);
     }
-
 }
 
 //-----------------------------------------------------------------------------
 
 using GroupingList = GroupingContext::GroupingList;
 
-SessionId createSessionId(const std::string & s) {
+SessionId createSessionId(const std::string& s) {
     std::vector<char> vec;
     for (char c : s) {
         vec.push_back(c);
@@ -108,34 +107,34 @@ SessionId createSessionId(const std::string & s) {
     return {vec.data(), vec.size()};
 }
 
-class CheckAttributeReferences : public vespalib::ObjectOperation, public vespalib::ObjectPredicate
-{
+class CheckAttributeReferences : public vespalib::ObjectOperation, public vespalib::ObjectPredicate {
 public:
     CheckAttributeReferences() : CheckAttributeReferences(false) {}
-    explicit CheckAttributeReferences(bool log) : _log(log), _numrefs(0) { }
+    explicit CheckAttributeReferences(bool log) : _log(log), _numrefs(0) {}
     bool     _log;
     uint32_t _numrefs;
+
 private:
-    void execute(vespalib::Identifiable &obj) override {
+    void execute(vespalib::Identifiable& obj) override {
         if (_log) {
             std::cerr << _numrefs << ": " << &obj << " = " << obj.asString() << std::endl;
         }
-        if (static_cast<AttributeNode &>(obj).getAttribute() != nullptr) {
+        if (static_cast<AttributeNode&>(obj).getAttribute() != nullptr) {
             _numrefs++;
         }
     }
-    bool check(const vespalib::Identifiable &obj) const override { return obj.inherits(AttributeNode::classId); }
+    bool check(const vespalib::Identifiable& obj) const override { return obj.inherits(AttributeNode::classId); }
 };
 
 struct DoomFixture {
     vespalib::TestClock clock;
-    steady_time timeOfDoom;
+    steady_time         timeOfDoom;
     DoomFixture() : clock(), timeOfDoom(steady_time::max()) {}
 };
 
 //-----------------------------------------------------------------------------
 
-TEST("testSessionId") {
+TEST(GroupingTest, testSessionId) {
     SessionId id1;
     ASSERT_TRUE(id1.empty());
 
@@ -145,79 +144,77 @@ TEST("testSessionId") {
     ASSERT_TRUE(!id2.empty());
     ASSERT_TRUE(!id3.empty());
     ASSERT_TRUE(id3 < id2);
-    EXPECT_EQUAL(id2, id2);
+    EXPECT_EQ(id2, id2);
 }
 
 #define MU std::make_unique
 
-GroupingLevel
-createGL(ExpressionNode::UP expr, ExpressionNode::UP result) {
+GroupingLevel createGL(ExpressionNode::UP expr, ExpressionNode::UP result) {
     GroupingLevel l;
     l.setExpression(std::move(expr));
     l.addResult(SumAggregationResult().setExpression(std::move(result)));
     return l;
 }
 
-GroupingLevel
-createGL(ExpressionNode::UP expr, ExpressionNode::UP resultExpr, ResultNode::UP result) {
+GroupingLevel createGL(ExpressionNode::UP expr, ExpressionNode::UP resultExpr, ResultNode::UP result) {
     GroupingLevel l;
     l.setExpression(std::move(expr));
-    l.addResult(SumAggregationResult().setExpression(std::move(resultExpr)).setResult(result.release()));
+    l.addResult(SumAggregationResult().setExpression(std::move(resultExpr)).resultForUnitTest(result.release()));
     return l;
 }
-GroupingLevel
-createGL(size_t maxGroups, ExpressionNode::UP expr) {
+GroupingLevel createGL(size_t maxGroups, ExpressionNode::UP expr) {
     GroupingLevel l;
     l.setMaxGroups(maxGroups);
     l.setExpression(std::move(expr));
     return l;
 }
 
-TEST_F("testGroupingContextInitialization", DoomFixture()) {
+TEST(GroupingTest, testGroupingContextInitialization) {
+    DoomFixture         f1;
     vespalib::nbostream os;
-    Grouping baseRequest;
+    Grouping            baseRequest;
     baseRequest.setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
-            .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
+        .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
 
     vespalib::NBOSerializer nos(os);
     nos << (uint32_t)1;
     baseRequest.serialize(nos);
 
     AllocatedBitVector bv(1);
-    GroupingContext context(bv, f1.clock.nowRef(), f1.timeOfDoom, os.data(), os.size());
+    GroupingContext    context(bv, f1.clock.nowRef(), f1.timeOfDoom, os.data(), os.size());
     ASSERT_TRUE(!context.empty());
     GroupingContext::GroupingList list = context.getGroupingList();
     ASSERT_TRUE(list.size() == 1);
-    EXPECT_EQUAL(list[0]->asString(), baseRequest.asString());
+    EXPECT_EQ(list[0]->asString(), baseRequest.asString());
     context.reset();
     ASSERT_TRUE(context.empty());
 }
 
-TEST_F("testGroupingContextUsage", DoomFixture()) {
+TEST(GroupingTest, testGroupingContextUsage) {
+    DoomFixture         f1;
     vespalib::nbostream os;
-    Grouping request1;
+    Grouping            request1;
     request1.setFirstLevel(0)
-            .setLastLevel(0)
-            .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
-            .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
+        .setLastLevel(0)
+        .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
+        .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
 
     Grouping request2;
     request2.setFirstLevel(0)
-            .setLastLevel(3)
-            .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
-            .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
+        .setLastLevel(3)
+        .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
+        .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
 
-
-    auto r1 = std::make_shared<Grouping>(request1);
-    auto r2 = std::make_shared<Grouping>(request2);
+    auto               r1 = std::make_shared<Grouping>(request1);
+    auto               r2 = std::make_shared<Grouping>(request2);
     AllocatedBitVector bv(1);
-    GroupingContext context(bv, f1.clock.nowRef(), f1.timeOfDoom);
+    GroupingContext    context(bv, f1.clock.nowRef(), f1.timeOfDoom);
     ASSERT_TRUE(context.empty());
     context.addGrouping(r1);
     ASSERT_TRUE(context.getGroupingList().size() == 1);
@@ -227,97 +224,99 @@ TEST_F("testGroupingContextUsage", DoomFixture()) {
     ASSERT_TRUE(context.empty());
 }
 
-TEST_F("testGroupingContextSerializing", DoomFixture()) {
-    Grouping baseRequest;
+TEST(GroupingTest, testGroupingContextSerializing) {
+    DoomFixture f1;
+    Grouping    baseRequest;
     baseRequest.setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
-            .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
+        .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
 
-    vespalib::nbostream os;
+    vespalib::nbostream     os;
     vespalib::NBOSerializer nos(os);
     nos << (uint32_t)1;
     baseRequest.serialize(nos);
 
     AllocatedBitVector bv(1);
-    GroupingContext context(bv, f1.clock.nowRef(), f1.timeOfDoom);
-    auto bp = std::make_shared<Grouping>(baseRequest);
+    GroupingContext    context(bv, f1.clock.nowRef(), f1.timeOfDoom);
+    auto               bp = std::make_shared<Grouping>(baseRequest);
     context.addGrouping(bp);
     context.serialize();
-    vespalib::nbostream & res(context.getResult());
-    EXPECT_EQUAL(res.size(), os.size());
+    vespalib::nbostream& res(context.getResult());
+    EXPECT_EQ(res.size(), os.size());
     ASSERT_TRUE(memcmp(res.data(), os.data(), res.size()) == 0);
 }
 
-TEST_F("testGroupingManager", DoomFixture()) {
+TEST(GroupingTest, testGroupingManager) {
+    DoomFixture         f1;
     vespalib::nbostream os;
-    Grouping request1;
+    Grouping            request1;
     request1.setFirstLevel(0)
-            .setLastLevel(0)
-            .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
+        .setLastLevel(0)
+        .setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
 
     AllocatedBitVector bv(1);
-    GroupingContext context(bv, f1.clock.nowRef(), f1.timeOfDoom);
-    auto bp = std::make_shared<Grouping>(request1);
+    GroupingContext    context(bv, f1.clock.nowRef(), f1.timeOfDoom);
+    auto               bp = std::make_shared<Grouping>(request1);
     context.addGrouping(bp);
     GroupingManager manager(context);
     ASSERT_TRUE(!manager.empty());
 }
 
-TEST_F("testGroupingSession", DoomFixture()) {
-    MyWorld world;
+TEST(GroupingTest, testGroupingSession) {
+    DoomFixture         f1;
+    MyWorld             world;
     vespalib::nbostream os;
-    Grouping request1;
+    Grouping            request1;
     request1.setId(0)
-            .setFirstLevel(0)
-            .setLastLevel(0)
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
 
     Grouping request2;
     request2.setId(1)
-            .setFirstLevel(0)
-            .setLastLevel(3)
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
-            .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
-
+        .setFirstLevel(0)
+        .setLastLevel(3)
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")))
+        .addLevel(createGL(MU<AttributeNode>("attr3"), MU<AttributeNode>("attr1")));
 
     CheckAttributeReferences attrCheck;
     request1.select(attrCheck, attrCheck);
-    EXPECT_EQUAL(0u, attrCheck._numrefs);
+    EXPECT_EQ(0u, attrCheck._numrefs);
     request2.select(attrCheck, attrCheck);
-    EXPECT_EQUAL(0u, attrCheck._numrefs);
+    EXPECT_EQ(0u, attrCheck._numrefs);
 
-    auto r1 = std::make_shared<Grouping>(request1);
-    auto r2 = std::make_shared<Grouping>(request2);
+    auto            r1 = std::make_shared<Grouping>(request1);
+    auto            r2 = std::make_shared<Grouping>(request2);
     GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
     initContext.addGrouping(r1);
     initContext.addGrouping(r2);
     SessionId id("foo");
 
     // Test initialization phase
-    GroupingSession session(id, initContext, world.attributeContext, &world.documentType);
+    GroupingSession          session(id, initContext, world.attributeContext, &world.documentType);
     CheckAttributeReferences attrCheck2;
-    EXPECT_EQUAL(2u, initContext.getGroupingList().size());
-    for (const auto & g : initContext.getGroupingList()) {
+    EXPECT_EQ(2u, initContext.getGroupingList().size());
+    for (const auto& g : initContext.getGroupingList()) {
         g->select(attrCheck2, attrCheck2);
     }
-    EXPECT_EQUAL(8u, attrCheck2._numrefs);
+    EXPECT_EQ(8u, attrCheck2._numrefs);
     RankedHit hit;
     hit._docId = 0;
-    GroupingManager &manager(session.getGroupingManager());
+    GroupingManager& manager(session.getGroupingManager());
     manager.groupInRelevanceOrder(7, &hit, 1);
     CheckAttributeReferences attrCheck_after;
-    GroupingList &gl3(initContext.getGroupingList());
-    for (auto & grouping : gl3) {
+    GroupingList&            gl3(initContext.getGroupingList());
+    for (auto& grouping : gl3) {
         grouping->select(attrCheck_after, attrCheck_after);
     }
-    EXPECT_EQUAL(attrCheck_after._numrefs, 0u);
+    EXPECT_EQ(attrCheck_after._numrefs, 0u);
     {
-        EXPECT_EQUAL(id, session.getSessionId());
+        EXPECT_EQ(id, session.getSessionId());
         ASSERT_TRUE(!session.getGroupingManager().empty());
         ASSERT_TRUE(!session.finished());
         session.continueExecution(initContext);
@@ -326,7 +325,7 @@ TEST_F("testGroupingSession", DoomFixture()) {
     // Test second pass
     {
         GroupingContext context(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
-        auto r = std::make_shared<Grouping>(request1);
+        auto            r = std::make_shared<Grouping>(request1);
         r->setFirstLevel(1);
         r->setLastLevel(1);
         context.addGrouping(r);
@@ -337,7 +336,7 @@ TEST_F("testGroupingSession", DoomFixture()) {
     // Test last pass. Session should be marked as finished
     {
         GroupingContext context(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
-        auto r = std::make_shared<Grouping>(request1);
+        auto            r = std::make_shared<Grouping>(request1);
         r->setFirstLevel(2);
         r->setLastLevel(2);
         context.addGrouping(r);
@@ -345,31 +344,173 @@ TEST_F("testGroupingSession", DoomFixture()) {
         session.continueExecution(context);
         ASSERT_TRUE(session.finished());
     }
-
 }
 
-TEST_F("testEmptySessionId", DoomFixture()) {
-    MyWorld world;
-    vespalib::nbostream os;
-    Grouping request1;
-    request1.setId(0)
-            .setFirstLevel(0)
-            .setLastLevel(0)
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
+// A multi-pass session keeps its own copy of the grouping and leaves the request object behind as
+// merge target for continueExecution(). Aggregation results at the root level are merged (not
+// copied) into that target, so it must have been prepared with a result node of the proper type.
+// Corresponds to "all(output(min(attr0)) all(group(attr1) each(output(count()))))".
+TEST(GroupingTest, testSessionWithRootLevelAggregationResult) {
+    DoomFixture f1;
+    MyWorld     world;
+    Grouping    request;
+    request.setId(0)
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .setRoot(Group().addResult(MinAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")));
 
-    auto r1 = std::make_shared<Grouping>(request1);
+    auto            r = std::make_shared<Grouping>(request);
+    GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
+    initContext.addGrouping(r);
+    // The request has a fallback result node for min() until the session prepares it
+    const AggregationResult& rootMin = r->getRoot().getAggregationResult(0);
+    EXPECT_TRUE(rootMin.getResult() != nullptr);
+    EXPECT_EQ("search::expression::FloatResultNode", std::string(rootMin.getResult()->getClass().name()));
+
+    SessionId       id("foo");
+    GroupingSession session(id, initContext, world.attributeContext, &world.documentType);
+    ASSERT_TRUE(rootMin.getResult() != nullptr);
+    // attr0 is a single int32 attribute, so the result node must be an integer, not the fallback
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+
+    RankedHit hit;
+    hit._docId = 3;
+    session.getGroupingManager().groupInRelevanceOrder(7, &hit, 1);
+    session.continueExecution(initContext);
+    ASSERT_TRUE(!session.finished());
+
+    EXPECT_EQ(3, static_cast<const MinAggregationResult&>(rootMin).getMin().getInteger()); // attr0 == docid
+}
+
+// Same bug as testSessionWithRootLevelAggregationResult, but with two root-level aggregation
+// results on the same request; both must independently get their proper (non-fallback) result
+// node type, not just the first one visited by select().
+TEST(GroupingTest, testSessionWithMultipleRootLevelAggregationResults) {
+    DoomFixture f1;
+    MyWorld     world;
+    Grouping    request;
+    request.setId(0)
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .setRoot(Group()
+                     .addResult(MinAggregationResult().setExpression(MU<AttributeNode>("attr0")))
+                     .addResult(MaxAggregationResult().setExpression(MU<AttributeNode>("attr1"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")));
+
+    auto            r = std::make_shared<Grouping>(request);
+    GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
+    initContext.addGrouping(r);
+    const AggregationResult& rootMin = r->getRoot().getAggregationResult(0);
+    const AggregationResult& rootMax = r->getRoot().getAggregationResult(1);
+    ASSERT_TRUE(rootMin.getResult() != nullptr);
+    ASSERT_TRUE(rootMax.getResult() != nullptr);
+    EXPECT_EQ("search::expression::FloatResultNode", std::string(rootMin.getResult()->getClass().name()));
+    EXPECT_EQ("search::expression::FloatResultNode", std::string(rootMax.getResult()->getClass().name()));
+
+    SessionId       id("foo");
+    GroupingSession session(id, initContext, world.attributeContext, &world.documentType);
+    // attr0 and attr1 are both single int32 attributes, so both results must be integers
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMax.getResult()->getClass().name()));
+
+    RankedHit hit;
+    hit._docId = 3;
+    session.getGroupingManager().groupInRelevanceOrder(7, &hit, 1);
+    session.continueExecution(initContext);
+    ASSERT_TRUE(!session.finished());
+
+    EXPECT_EQ(3, static_cast<const MinAggregationResult&>(rootMin).getMin().getInteger()); // attr0 == docid
+    EXPECT_EQ(6, static_cast<const MaxAggregationResult&>(rootMax).getMax().getInteger()); // attr1 == docid*2
+}
+
+// Same setup as testSessionWithRootLevelAggregationResult, but continued across all passes of a
+// multi-level grouping (mirrors the pass structure of testGroupingSession). The root-level
+// aggregation result is only merged into during the first pass (later passes are "frozen" at the
+// root level), so it must keep the value and type it got there for the remainder of the session.
+TEST(GroupingTest, testSessionWithRootLevelAggregationResultAcrossPasses) {
+    DoomFixture f1;
+    MyWorld     world;
+    Grouping    request;
+    request.setId(0)
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .setRoot(Group().addResult(MinAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
+
+    auto            r = std::make_shared<Grouping>(request);
+    GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
+    initContext.addGrouping(r);
+    const AggregationResult& rootMin = r->getRoot().getAggregationResult(0);
+
+    SessionId       id("foo");
+    GroupingSession session(id, initContext, world.attributeContext, &world.documentType);
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+
+    RankedHit hit;
+    hit._docId = 3;
+    session.getGroupingManager().groupInRelevanceOrder(7, &hit, 1);
+
+    // First pass: root level (0) is merged, since firstLevel == 0 here.
+    session.continueExecution(initContext);
+    ASSERT_TRUE(!session.finished());
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+    EXPECT_EQ(3, static_cast<const MinAggregationResult&>(rootMin).getMin().getInteger()); // attr0 == docid
+
+    // Second pass: a fresh request object, root level is now frozen (firstLevel == 1) so it is
+    // not touched again; the result already delivered in the first pass must remain intact.
+    {
+        GroupingContext context(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
+        auto            r2 = std::make_shared<Grouping>(request);
+        r2->setFirstLevel(1);
+        r2->setLastLevel(1);
+        context.addGrouping(r2);
+
+        session.continueExecution(context);
+        ASSERT_TRUE(!session.finished());
+    }
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+    EXPECT_EQ(3, static_cast<const MinAggregationResult&>(rootMin).getMin().getInteger());
+
+    // Third (last) pass: session should be marked as finished, first-pass result still intact.
+    {
+        GroupingContext context(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
+        auto            r3 = std::make_shared<Grouping>(request);
+        r3->setFirstLevel(2);
+        r3->setLastLevel(2);
+        context.addGrouping(r3);
+
+        session.continueExecution(context);
+        ASSERT_TRUE(session.finished());
+    }
+    EXPECT_EQ("search::expression::Int64ResultNode", std::string(rootMin.getResult()->getClass().name()));
+    EXPECT_EQ(3, static_cast<const MinAggregationResult&>(rootMin).getMin().getInteger());
+}
+
+TEST(GroupingTest, testEmptySessionId) {
+    DoomFixture         f1;
+    MyWorld             world;
+    vespalib::nbostream os;
+    Grouping            request1;
+    request1.setId(0)
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2")))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3")));
+
+    auto            r1 = std::make_shared<Grouping>(request1);
     GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
     initContext.addGrouping(r1);
     SessionId id;
 
     // Test initialization phase
     GroupingSession session(id, initContext, world.attributeContext, &world.documentType);
-    RankedHit hit;
+    RankedHit       hit;
     hit._docId = 0;
-    GroupingManager &manager(session.getGroupingManager());
+    GroupingManager& manager(session.getGroupingManager());
     manager.groupInRelevanceOrder(8, &hit, 1);
-    EXPECT_EQUAL(id, session.getSessionId());
+    EXPECT_EQ(id, session.getSessionId());
     ASSERT_TRUE(!session.getGroupingManager().empty());
     ASSERT_TRUE(session.finished() && session.getSessionId().empty());
     session.continueExecution(initContext);
@@ -377,36 +518,36 @@ TEST_F("testEmptySessionId", DoomFixture()) {
     ASSERT_TRUE(r1->getRoot().getChildrenSize() > 0);
 }
 
-TEST_F("testSessionManager", DoomFixture()) {
-    MyWorld world;
+TEST(GroupingTest, testSessionManager) {
+    DoomFixture         f1;
+    MyWorld             world;
     vespalib::nbostream os;
-    Grouping request1;
+    Grouping            request1;
     request1.setId(0)
-            .setFirstLevel(0)
-            .setLastLevel(0)
-            .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2"), MU<Int64ResultNode>(0)))
-            .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3"), MU<Int64ResultNode>(0)))
-            .setRoot(Group().addResult(SumAggregationResult()
-                                               .setExpression(MU<AttributeNode>("attr0"))
-                                               .setResult(Int64ResultNode(0))));
+        .setFirstLevel(0)
+        .setLastLevel(0)
+        .addLevel(createGL(MU<AttributeNode>("attr1"), MU<AttributeNode>("attr2"), MU<Int64ResultNode>(0)))
+        .addLevel(createGL(MU<AttributeNode>("attr2"), MU<AttributeNode>("attr3"), MU<Int64ResultNode>(0)))
+        .setRoot(Group().addResult(
+            SumAggregationResult().setExpression(MU<AttributeNode>("attr0")).resultForUnitTest(Int64ResultNode(0))));
 
-    auto r1 = std::make_shared<Grouping>(request1);
+    auto            r1 = std::make_shared<Grouping>(request1);
     GroupingContext initContext(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
     initContext.addGrouping(r1);
 
     SessionManager mgr(2);
-    SessionId id1("foo");
-    SessionId id2("bar");
-    SessionId id3("baz");
+    SessionId      id1("foo");
+    SessionId      id2("bar");
+    SessionId      id3("baz");
     auto s1 = std::make_unique<GroupingSession>(id1, initContext, world.attributeContext, &world.documentType);
     auto s2 = std::make_unique<GroupingSession>(id2, initContext, world.attributeContext, &world.documentType);
     auto s3 = std::make_unique<GroupingSession>(id3, initContext, world.attributeContext, &world.documentType);
 
-    ASSERT_EQUAL(f1.timeOfDoom, s1->getTimeOfDoom());
+    ASSERT_EQ(f1.timeOfDoom, s1->getTimeOfDoom());
     mgr.insert(std::move(s1));
     s1 = mgr.pickGrouping(id1);
     ASSERT_TRUE(s1.get());
-    EXPECT_EQUAL(id1, s1->getSessionId());
+    EXPECT_EQ(id1, s1->getSessionId());
 
     mgr.insert(std::move(s1));
     mgr.insert(std::move(s2));
@@ -417,20 +558,17 @@ TEST_F("testSessionManager", DoomFixture()) {
     ASSERT_FALSE(s1);
     ASSERT_TRUE(s2);
     ASSERT_TRUE(s3);
-    EXPECT_EQUAL(id2, s2->getSessionId());
-    EXPECT_EQUAL(id3, s3->getSessionId());
+    EXPECT_EQ(id2, s2->getSessionId());
+    EXPECT_EQ(id3, s3->getSessionId());
     SessionManager::Stats stats = mgr.getGroupingStats();
-    EXPECT_EQUAL(4u, stats.numInsert);
-    EXPECT_EQUAL(3u, stats.numPick);
-    EXPECT_EQUAL(1u, stats.numDropped);
+    EXPECT_EQ(4u, stats.numInsert);
+    EXPECT_EQ(3u, stats.numPick);
+    EXPECT_EQ(1u, stats.numDropped);
 }
 
-void doGrouping(GroupingContext &ctx,
-                uint32_t doc1, double rank1,
-                uint32_t doc2, double rank2,
-                uint32_t doc3, double rank3)
-{
-    GroupingManager man(ctx);
+void doGrouping(GroupingContext& ctx, uint32_t doc1, double rank1, uint32_t doc2, double rank2, uint32_t doc3,
+                double rank3) {
+    GroupingManager        man(ctx);
     std::vector<RankedHit> hits;
     hits.emplace_back(doc1, rank1);
     hits.emplace_back(doc2, rank2);
@@ -438,16 +576,17 @@ void doGrouping(GroupingContext &ctx,
     man.groupInRelevanceOrder(9, &hits[0], 3);
 }
 
-TEST_F("test grouping fork/join", DoomFixture()) {
-    MyWorld world;
+TEST(GroupingTest, test_grouping_fork_and_join) {
+    DoomFixture f1;
+    MyWorld     world;
 
     Grouping request;
     request.setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0"))))
-           .addLevel(createGL(3, MU<AttributeNode>("attr0")))
-           .setFirstLevel(0)
-           .setLastLevel(1);
+        .addLevel(createGL(3, MU<AttributeNode>("attr0")))
+        .setFirstLevel(0)
+        .setLastLevel(1);
 
-    auto g1 = std::make_shared<Grouping>(request);
+    auto            g1 = std::make_shared<Grouping>(request);
     GroupingContext context(world.bv, f1.clock.nowRef(), f1.timeOfDoom);
     context.addGrouping(g1);
     GroupingSession session(SessionId(), context, world.attributeContext, &world.documentType);
@@ -468,25 +607,30 @@ TEST_F("test grouping fork/join", DoomFixture()) {
     }
 
     Grouping expect;
-    expect.setRoot(Group().addResult(SumAggregationResult().setExpression(MU<AttributeNode>("attr0")).setResult(Int64ResultNode(189)))
-                           .addChild(Group().setId(Int64ResultNode(21)).setRank(40.0))
-                           .addChild(Group().setId(Int64ResultNode(22)).setRank(150.0))
-                           .addChild(Group().setId(Int64ResultNode(32)).setRank(100.0)))
-            .addLevel(createGL(3, MU<AttributeNode>("attr0")))
-            .setFirstLevel(0)
-            .setLastLevel(1);
+    expect
+        .setRoot(Group()
+                     .addResult(SumAggregationResult()
+                                    .setExpression(MU<AttributeNode>("attr0"))
+                                    .resultForUnitTest(Int64ResultNode(189)))
+                     .addChild(Group().setId(Int64ResultNode(21)).setRank(40.0))
+                     .addChild(Group().setId(Int64ResultNode(22)).setRank(150.0))
+                     .addChild(Group().setId(Int64ResultNode(32)).setRank(100.0)))
+        .addLevel(createGL(3, MU<AttributeNode>("attr0")))
+        .setFirstLevel(0)
+        .setLastLevel(1);
 
     session.continueExecution(context);
     GroupingContext::GroupingList list = context.getGroupingList();
     ASSERT_TRUE(list.size() == 1);
-    EXPECT_EQUAL(expect.asString(), list[0]->asString());
+    EXPECT_EQ(expect.asString(), list[0]->asString());
 }
 
-TEST_F("test session timeout", DoomFixture()) {
-    MyWorld world;
+TEST(GroupingTest, test_session_timeout) {
+    DoomFixture    f1;
+    MyWorld        world;
     SessionManager mgr(2);
-    SessionId id1("foo");
-    SessionId id2("bar");
+    SessionId      id1("foo");
+    SessionId      id2("bar");
 
     GroupingContext initContext1(world.bv, f1.clock.nowRef(), steady_time(duration(10)));
     GroupingContext initContext2(world.bv, f1.clock.nowRef(), steady_time(duration(20)));
@@ -495,15 +639,15 @@ TEST_F("test session timeout", DoomFixture()) {
     mgr.insert(std::move(s1));
     mgr.insert(std::move(s2));
     mgr.pruneTimedOutSessions(steady_time(5ns));
-    ASSERT_EQUAL(2u, mgr.getGroupingStats().numCached);
+    ASSERT_EQ(2u, mgr.getGroupingStats().numCached);
     mgr.pruneTimedOutSessions(steady_time(10ns));
-    ASSERT_EQUAL(2u, mgr.getGroupingStats().numCached);
+    ASSERT_EQ(2u, mgr.getGroupingStats().numCached);
 
     mgr.pruneTimedOutSessions(steady_time(11ns));
-    ASSERT_EQUAL(1u, mgr.getGroupingStats().numCached);
+    ASSERT_EQ(1u, mgr.getGroupingStats().numCached);
 
     mgr.pruneTimedOutSessions(steady_time(21ns));
-    ASSERT_EQUAL(0u, mgr.getGroupingStats().numCached);
+    ASSERT_EQ(0u, mgr.getGroupingStats().numCached);
 }
 
-TEST_MAIN() { TEST_RUN_ALL(); }
+GTEST_MAIN_RUN_ALL_TESTS()

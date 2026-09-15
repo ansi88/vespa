@@ -9,8 +9,9 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
-import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Simon Thoresen Hult
@@ -27,18 +28,16 @@ public class ToDoubleTestCase {
 
     @Test
     public void requireThatExpressionCanBeVerified() {
-        Expression exp = new ToDoubleExpression();
-        assertVerify(DataType.INT, exp, DataType.DOUBLE);
-        assertVerify(DataType.STRING, exp, DataType.DOUBLE);
-        assertVerifyThrows(null, exp, "Expected any input, but no input is specified");
+        assertVerify(DataType.INT, new ToDoubleExpression(), DataType.DOUBLE);
+        assertVerify(DataType.STRING, new ToDoubleExpression(), DataType.DOUBLE);
     }
 
     @Test
     public void requireThatValueIsConverted() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new StringFieldValue("6.9")).execute(new ToDoubleExpression());
+        ctx.setCurrentValue(new StringFieldValue("6.9")).execute(new ToDoubleExpression());
 
-        FieldValue val = ctx.getValue();
+        FieldValue val = ctx.getCurrentValue();
         assertTrue(val instanceof DoubleFieldValue);
         assertEquals(6.9, ((DoubleFieldValue)val).getDouble(), 1e-6);
     }

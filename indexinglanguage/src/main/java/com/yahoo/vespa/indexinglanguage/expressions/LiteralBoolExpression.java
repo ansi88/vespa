@@ -14,23 +14,27 @@ public class LiteralBoolExpression extends Expression {
     private final boolean value;
 
     public LiteralBoolExpression(boolean value) {
-        super(null);
         this.value = value;
     }
 
     @Override
-    protected void doExecute(ExecutionContext context) {
-        context.setValue(new BoolFieldValue(value));
-    }
+    public boolean requiresInput() { return false; }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
         return DataType.BOOL;
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(DataType.BOOL, outputType, null, context);
+        return AnyDataType.instance;
+    }
+
+    @Override
+    protected void doExecute(ExecutionContext context) {
+        context.setCurrentValue(new BoolFieldValue(value));
     }
 
     @Override

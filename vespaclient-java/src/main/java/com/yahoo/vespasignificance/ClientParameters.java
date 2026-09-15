@@ -14,6 +14,9 @@ public class ClientParameters {
     // Input file for the program
     public final String inputFile;
 
+    // Format of input file
+    public final String format;
+
     // Output file for the program
     public final String outputFile;
 
@@ -23,36 +26,33 @@ public class ClientParameters {
     // Language for the program
     public final String language;
 
-    // Document type identifier
-    public final String docType;
-
     // Zstandard compression
     public final boolean zstCompression;
 
     public ClientParameters(
             boolean help,
             String inputFile,
+            String format,
             String outputFile,
             String field,
             String language,
-            String docType,
             boolean zstCompression) {
         this.help = help;
         this.inputFile = inputFile;
+        this.format = format;
         this.outputFile = outputFile;
         this.field = field;
         this.language = language;
-        this.docType = docType;
         this.zstCompression = zstCompression;
     }
 
     public static class Builder {
         private boolean help;
         private String inputFile;
+        private String format;
         private String outputFile;
         private String field;
         private String language;
-        private String docType;
         private boolean zstCompression;
 
         public Builder setHelp(boolean help) {
@@ -62,6 +62,11 @@ public class ClientParameters {
 
         public Builder setInputFile(String inputFile) {
             this.inputFile = inputFile;
+            return this;
+        }
+
+        public Builder setFormat(String format) {
+            this.format = format;
             return this;
         }
 
@@ -79,18 +84,13 @@ public class ClientParameters {
             return this;
         }
 
-        public Builder setDocType(String docType) {
-            this.docType = docType;
-            return this;
-        }
-
         public Builder setZstCompression(String useZstCompression) {
             this.zstCompression = Boolean.parseBoolean(useZstCompression);
             return this;
         }
 
         public ClientParameters build() {
-            return new ClientParameters(help, inputFile, outputFile, field, language, docType, zstCompression);
+            return new ClientParameters(help, inputFile, format, outputFile, field, language, zstCompression);
         }
     }
 }

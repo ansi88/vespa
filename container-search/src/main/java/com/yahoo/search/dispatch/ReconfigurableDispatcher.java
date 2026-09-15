@@ -22,11 +22,14 @@ public class ReconfigurableDispatcher extends Dispatcher {
     private final ConfigSubscriber subscriber;
 
     @Inject
-    public ReconfigurableDispatcher(ComponentId clusterId, DispatchConfig dispatchConfig, SystemInfo systemInfo, VipStatus vipStatus) {
-        super(clusterId, dispatchConfig, new DispatchNodesConfig.Builder().build(), vipStatus);
+    public ReconfigurableDispatcher(ComponentId clusterId,
+                                    DispatchConfig dispatchConfig,
+                                    SystemInfo systemInfo,
+                                    VipStatus vipStatus) {
+        super(clusterId, dispatchConfig, new DispatchNodesConfig.Builder().build(), systemInfo, vipStatus);
         this.subscriber = new ConfigSubscriber();
         CountDownLatch configured = new CountDownLatch(1);
-        this.subscriber.subscribe(config -> { updateWithNewConfig(config); configured.countDown(); },
+        this.subscriber.subscribe(nodesConfig -> { updateWithNewConfig(nodesConfig); configured.countDown(); },
                                   DispatchNodesConfig.class, configId(clusterId, systemInfo));
         try {
             if ( ! configured.await(1, TimeUnit.MINUTES))

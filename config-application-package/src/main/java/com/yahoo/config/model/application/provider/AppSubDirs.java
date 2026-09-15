@@ -11,7 +11,7 @@ import java.io.File;
  *
  * @author hmusum
  */
-public class AppSubDirs {
+public final class AppSubDirs {
 
     private final Tuple2<File, String> root;
     private final Tuple2<File, String> routingtables;
@@ -29,10 +29,6 @@ public class AppSubDirs {
 
     public File file(String subPath) {
         return new File(root.first, subPath);
-    }
-
-    public File root() {
-        return root.first;
     }
 
     public File configDefs() {

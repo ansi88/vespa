@@ -2,18 +2,18 @@
 #pragma once
 
 #include <vespa/vespalib/util/exceptions.h>
+
 #include <memory>
 
 namespace document {
 
 class BufferOutOfBoundsException : public vespalib::IoException {
-    static vespalib::string createMessage(size_t pos, size_t len);
+    static std::string createMessage(size_t pos, size_t len);
+
 public:
-    BufferOutOfBoundsException(size_t pos, size_t len,
-                               const vespalib::string& location = "");
+    BufferOutOfBoundsException(size_t pos, size_t len, const std::string& location = "");
 
     VESPA_DEFINE_EXCEPTION_SPINE(BufferOutOfBoundsException)
 };
 
-}
-
+} // namespace document

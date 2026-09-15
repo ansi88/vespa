@@ -7,6 +7,7 @@ import com.yahoo.cloud.config.SentinelConfig;
 import com.yahoo.component.Version;
 import com.yahoo.config.FileReference;
 import com.yahoo.config.SimpletypesConfig;
+import com.yahoo.config.model.api.Provisioned;
 import com.yahoo.config.model.test.MockApplicationPackage;
 import com.yahoo.config.provision.ApplicationId;
 import com.yahoo.config.provision.ApplicationName;
@@ -36,10 +37,10 @@ import org.junit.rules.TemporaryFolder;
 import org.xml.sax.SAXException;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 
 import static com.yahoo.vespa.config.server.rpc.RpcServer.ChunkedFileReceiver.createMetaRequest;
-import static com.yahoo.vespa.filedistribution.FileReferenceData.CompressionType.gzip;
 import static com.yahoo.vespa.filedistribution.FileReferenceData.CompressionType.lz4;
 import static com.yahoo.vespa.filedistribution.FileReferenceData.Type.compressed;
 import static org.junit.Assert.assertEquals;
@@ -64,7 +65,7 @@ public class RpcServerTest {
     public void testRpcServer() throws IOException, SAXException, InterruptedException {
         try (RpcTester tester = new RpcTester(applicationId, temporaryFolder)) {
             ApplicationRepository applicationRepository = tester.applicationRepository();
-            applicationRepository.deploy(testApp, new PrepareParams.Builder().applicationId(applicationId).build());
+            applicationRepository.prepareAndActivate(testApp, new PrepareParams.Builder().applicationId(applicationId).build());
             testPrintStatistics(tester);
             testGetConfig(tester);
             testEnabled(tester);
@@ -105,14 +106,7 @@ public class RpcServerTest {
     @Test
     public void testFileReceiverMetaRequest() throws IOException {
         File file = temporaryFolder.newFile();
-        Request request = createMetaRequest(new LazyFileReferenceData(new FileReference("foo"), "fileA", compressed, file, gzip));
-        assertEquals(4, request.parameters().size());
-        assertEquals("foo", request.parameters().get(0).asString());
-        assertEquals("fileA", request.parameters().get(1).asString());
-        assertEquals("compressed", request.parameters().get(2).asString());
-        assertEquals(0, request.parameters().get(3).asInt64());
-
-        request = createMetaRequest(new LazyFileReferenceData(new FileReference("foo"), "fileA", compressed, file, lz4));
+        Request request = createMetaRequest(new LazyFileReferenceData(new FileReference("foo"), "fileA", compressed, file, lz4));
         assertEquals(5, request.parameters().size());
         assertEquals("foo", request.parameters().get(0).asString());
         assertEquals("fileA", request.parameters().get(1).asString());
@@ -142,7 +136,7 @@ public class RpcServerTest {
                                           new Version(1, 2, 3),
                                           MetricUpdater.createTestUpdater(),
                                           applicationId);
-        ApplicationVersions appSet = ApplicationVersions.from(app);
+        ApplicationVersions appSet = ApplicationVersions.fromList(List.of(app), new Provisioned());
         tester.rpcServer().configActivated(appSet);
         ConfigKey<?> key = new ConfigKey<>(LbServicesConfig.class, "*");
         JRTClientConfigRequest clientReq  = createRequest(new RawConfig(key, LbServicesConfig.getDefMd5()));

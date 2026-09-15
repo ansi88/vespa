@@ -49,11 +49,13 @@ public class ValidationOverrides {
     }
 
     /** Throws a ValidationException unless all given validation is overridden at this time */
+    // TODO: Remove: Usage should be of Validation.Context.invalid
     public void invalid(Map<ValidationId, ? extends Collection<String>> messagesByValidationId, Instant now) {
         invalidException(messagesByValidationId, now).ifPresent(e -> { throw e; });
     }
 
     /** Throws a ValidationException unless this validation is overridden at this time */
+    // TODO: Remove: Usage should be of Validation.Context.invalid
     public void invalid(ValidationId validationId, String message, Instant now) {
         if ( ! allows(validationId, now))
             throw new ValidationException(validationId, message);
@@ -71,13 +73,6 @@ public class ValidationOverrides {
             return Optional.of(new ValidationException(disallowed));
 
         return Optional.empty();
-    }
-
-    // TODO: remove after 8.284 is gone
-    public boolean allows(String validationIdString, Instant now) {
-        Optional<ValidationId> validationId = ValidationId.from(validationIdString);
-        if (validationId.isEmpty()) return false; // unknown id -> not allowed
-        return allows(validationId.get(), now);
     }
 
     /** Returns whether the given (assumed invalid) change is allowed by this at the moment */
@@ -109,7 +104,7 @@ public class ValidationOverrides {
 
     public static String toAllowMessage(ValidationId id) {
         return "To allow this add <allow until='yyyy-mm-dd'>" + id + "</allow> to validation-overrides.xml" +
-               ", see https://docs.vespa.ai/en/reference/validation-overrides.html";
+               ", see https://docs.vespa.ai/en/reference/applications/validation-overrides.html";
     }
 
     /**
@@ -184,10 +179,8 @@ public class ValidationOverrides {
 
         private final Map<ValidationId, Collection<String>> messagesById = new LinkedHashMap<>();
 
-        static final long serialVersionUID = 789984668;
-
         private ValidationException(ValidationId validationId, String message) {
-            super(validationId + ": " + message + ". " + toAllowMessage(validationId));
+            super(validationId.description() + ": " + message + ". " + toAllowMessage(validationId));
             messagesById.put(validationId, List.of(message));
         }
 

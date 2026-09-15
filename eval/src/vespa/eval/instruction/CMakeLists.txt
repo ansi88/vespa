@@ -19,8 +19,10 @@ vespa_add_library(eval_instruction OBJECT
     dense_xw_product_function.cpp
     fast_rename_optimizer.cpp
     generic_cell_cast.cpp
+    generic_cell_order.cpp
     generic_concat.cpp
     generic_create.cpp
+    generic_filter_subspaces.cpp
     generic_join.cpp
     generic_lambda.cpp
     generic_map.cpp
@@ -50,6 +52,7 @@ vespa_add_library(eval_instruction OBJECT
     sparse_no_overlap_join_function.cpp
     sparse_singledim_lookup.cpp
     sum_max_dot_product_function.cpp
+    sum_max_inv_hamming_function.cpp
     universal_dot_product.cpp
     unpack_bits_function.cpp
     vector_from_doubles_function.cpp

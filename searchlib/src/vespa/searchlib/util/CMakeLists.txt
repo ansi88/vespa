@@ -5,8 +5,11 @@ vespa_add_library(searchlib_util OBJECT
     comprbuffer.cpp
     comprfile.cpp
     data_buffer_writer.cpp
-    dirtraverse.cpp
+    disk_io_stats.cpp
+    directory_traverse.cpp
     drainingbufferwriter.cpp
+    field_index_io_stats.cpp
+    field_index_stats.cpp
     file_with_header.cpp
     filealign.cpp
     fileheadertk.cpp
@@ -14,6 +17,7 @@ vespa_add_library(searchlib_util OBJECT
     filesizecalculator.cpp
     fileutil.cpp
     foldedstringcompare.cpp
+    index_stats.cpp
     linguisticsannotation.cpp
     logutil.cpp
     rawbuf.cpp

@@ -2,10 +2,10 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <map>
-#include <vector>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace search::fef {
 
@@ -15,34 +15,32 @@ namespace search::fef {
 class RankingConstants {
 public:
     struct Constant {
-        vespalib::string name;
-        vespalib::string type;
-        vespalib::string filePath;
+        std::string name;
+        std::string type;
+        std::string filePath;
 
-        Constant(const vespalib::string &name_in,
-                 const vespalib::string &type_in,
-                 const vespalib::string &filePath_in);
+        Constant(const std::string& name_in, const std::string& type_in, const std::string& filePath_in);
         ~Constant();
-        bool operator==(const Constant &rhs) const;
+        bool operator==(const Constant& rhs) const;
     };
 
     using Vector = std::vector<Constant>;
 
 private:
-    using Map = std::map<vespalib::string, Constant>;
+    using Map = std::map<std::string, Constant>;
     Map _constants;
 
 public:
     RankingConstants();
-    RankingConstants(RankingConstants &&) noexcept;
-    RankingConstants & operator =(RankingConstants &&) = delete;
-    RankingConstants(const RankingConstants &) = delete;
-    RankingConstants & operator =(const RankingConstants &) = delete;
-    explicit RankingConstants(const Vector &constants);
+    RankingConstants(RankingConstants&&) noexcept;
+    RankingConstants& operator=(RankingConstants&&) = delete;
+    RankingConstants(const RankingConstants&) = delete;
+    RankingConstants& operator=(const RankingConstants&) = delete;
+    explicit RankingConstants(const Vector& constants);
     ~RankingConstants();
-    bool operator==(const RankingConstants &rhs) const;
-    const Constant *getConstant(const vespalib::string &name) const;
+    bool operator==(const RankingConstants& rhs) const;
+    const Constant* getConstant(const std::string& name) const;
     size_t size() const { return _constants.size(); }
 };
 
-}
+} // namespace search::fef

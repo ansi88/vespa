@@ -8,6 +8,8 @@ import org.w3c.dom.Element;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.StringTokenizer;
 
 /**
@@ -20,9 +22,7 @@ public class ModelElement {
     private final Element xml;
 
     public ModelElement(Element xml) {
-        if (xml == null) throw new NullPointerException("Can not create ModelElement with null element");
-        if (xml.getNodeName() == null) throw new NullPointerException("Can not create ModelElement with unnamed element");
-        this.xml = xml;
+        this.xml = Objects.requireNonNull(xml, "Can not create ModelElement with null element");
     }
 
     public Element getXml() { return xml; }
@@ -32,6 +32,13 @@ public class ModelElement {
         Element e = XML.getChild(xml, name);
         if (e == null) return null;
         return new ModelElement(e);
+    }
+
+    /** Returns the child with the given name, or null if none. */
+    public Optional<ModelElement> optionalChild(String name) {
+        Element e = XML.getChild(xml, name);
+        if (e == null) return Optional.empty();
+        return Optional.of(new ModelElement(e));
     }
 
     /** If not found, return empty list. */
@@ -158,8 +165,12 @@ public class ModelElement {
     }
 
     public Double doubleAttribute(String name) {
+        return doubleAttribute(name, null);
+    }
+
+    public Double doubleAttribute(String name, Double defaultValue) {
         String value = stringAttribute(name);
-        if (value == null) return null;
+        if (value == null) return defaultValue;
         return Double.parseDouble(value);
     }
 
@@ -187,7 +198,6 @@ public class ModelElement {
             throw new IllegalArgumentException("Required attribute '" + name + "' is missing");
         return stringAttribute(name);
     }
-
 
     public List<ModelElement> subElements(String name) {
         List<Element> elements = XML.getChildren(xml, name);

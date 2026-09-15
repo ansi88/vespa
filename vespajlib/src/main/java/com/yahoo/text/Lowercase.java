@@ -6,11 +6,13 @@ import java.util.Locale;
 /**
  * The lower casing method to use in Vespa when doing string processing of data
  * which is not to be handled as natural language data, e.g. field names or
- * configuration paramaters.
+ * configuration parameters.
  *
  * @author Steinar Knutsen
  */
 public final class Lowercase {
+
+    private static final char upperIwithDot = 0x0130;
 
     /**
      * Return a lowercased version of the given string. Since this is language
@@ -22,9 +24,12 @@ public final class Lowercase {
      * @return a string containing only lowercase character
      */
     public static String toLowerCase(String in) {
+        if (in.indexOf(upperIwithDot) != -1) {
+            return in.replace(upperIwithDot, 'I').toLowerCase(Locale.ENGLISH);
+        }
         return in.toLowerCase(Locale.ENGLISH);
-
     }
+
     public static String toUpperCase(String in) {
         return in.toUpperCase(Locale.ENGLISH);
     }

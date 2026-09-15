@@ -1,7 +1,5 @@
-/**
- * This file is generated from a config definition file.
- * ------------   D O   N O T   E D I T !   ------------
- */
+// ------------   D O   N O T   E D I T !   ------------
+// This file is generated from a config definition file.
 
 package com.yahoo.configgen;
 
@@ -997,6 +995,13 @@ public final class AllfeaturesConfig extends ConfigInstance {
    */
   public Path modelVal() {
     return modelVal.value();
+  }
+
+  /**
+   * @return allfeatures.modelVal ModelReference
+   */
+  public ModelReference modelValReference() {
+    return modelVal.getModelReference();
   }
 
   /**

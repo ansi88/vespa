@@ -1,0 +1,218 @@
+package ai.vespa.schemals.schemadocument.resolvers.RankExpression;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import org.eclipse.lsp4j.Diagnostic;
+import org.eclipse.lsp4j.DiagnosticSeverity;
+
+import ai.vespa.schemals.common.SchemaDiagnostic;
+import ai.vespa.schemals.context.ParseContext;
+import ai.vespa.schemals.index.Symbol.SymbolStatus;
+import ai.vespa.schemals.index.Symbol.SymbolType;
+import ai.vespa.schemals.parser.rankingexpression.ast.identifierStr;
+import ai.vespa.schemals.schemadocument.resolvers.RankExpression.argument.Argument;
+import ai.vespa.schemals.tree.Node;
+import ai.vespa.schemals.tree.SchemaNode;
+import ai.vespa.schemals.tree.rankingexpression.RankNode;
+
+/**
+ * A representation of a rank feature. Holds a list of signatures, which are overloads
+ * of this function. Matching a GenericFunction object with a list of argument {@link RankNode}s
+ * gives the {@link FunctionSignature} applicable to the arguments.
+ */
+public class GenericFunction {
+
+    private String name;
+    List<FunctionSignature> signatures;
+    Set<String> properties;
+
+    public GenericFunction(String name, List<FunctionSignature> signatures) {
+        this.name = name;
+        this.signatures = signatures;
+        this.properties = new HashSet<>();
+
+        for (FunctionSignature signature : signatures) {
+            Set<String> addProps = signature.getProperties();
+            if (addProps.size() == 0 && properties.size() > 0) {
+                 properties.add("");
+            } else {
+                properties.addAll(addProps);
+            }
+            
+        }
+    }
+
+    public GenericFunction(String name, FunctionSignature signature) {
+        this(name, new ArrayList<>() {{
+            add(signature);
+        }});
+    }
+
+    public GenericFunction(String name, Argument argument, Set<String> properties) {
+        this(name, new FunctionSignature(argument, properties));
+    }
+
+    public GenericFunction(String name, List<Argument> arguments, Set<String> proerties) {
+        this(name, new FunctionSignature(arguments, proerties));
+    }
+
+    public GenericFunction(String name) {
+        this(name, new FunctionSignature());
+    }
+
+    public List<FunctionSignature> getSignatures() {
+        return List.copyOf(signatures);
+    }
+
+    public String getName() { return name; }
+
+    public List<Diagnostic> handleArgumentList(ParseContext context, RankNode node, boolean ignoreProperty) {
+        List<Diagnostic> diagnostics = new ArrayList<>();
+
+        // TODO: Different property handlers instead of ignoring
+        Optional<SchemaNode> property = ignoreProperty ? Optional.empty() : node.getProperty();
+        Optional<String> propertyString = Optional.empty();
+
+        if (property.isPresent()) {
+            propertyString = Optional.of(property.get().getText());
+        }
+
+        Optional<FunctionSignature> signature = findFunctionSignature(node.getChildren(), propertyString);
+
+        if (signature.isEmpty()) {
+            List<String> signatureStrings = signatures.stream()
+                                                      .filter(sig -> !sig.isHidden())
+                                                      .map(func -> name + func.toString())
+                                                      .collect(Collectors.toList());
+            String availableSignatures = String.join("\n", signatureStrings);
+            String message = "No function matched the given signature. Available signatures are:\n" + availableSignatures;
+            diagnostics.add(new SchemaDiagnostic.Builder()
+                .setRange(node.getRange())
+                .setMessage(message)
+                .setSeverity(DiagnosticSeverity.Error)
+                .build());
+            return diagnostics;
+        }
+
+        diagnostics.addAll(signature.get().handleArgumentList(context, node.getChildren()));
+
+        Optional<SpecificFunction> specificFunction = instantiate(context, signature.get(), node, ignoreProperty, diagnostics);
+        specificFunction.ifPresent(instantiation -> node.setFunctionSignature(instantiation));
+
+        return diagnostics;
+    }
+
+    public Optional<SpecificFunction> instantiate(ParseContext context, FunctionSignature signature, RankNode node, boolean ignoreProperty, List<Diagnostic> diagnostics) {
+        Set<String> signatureProps = signature.getProperties();
+
+        Optional<SchemaNode> propertyNode = ignoreProperty ? Optional.empty() : node.getProperty();
+        Optional<String> propertyString = Optional.empty();
+        if (propertyNode.isPresent()) {
+            propertyString = Optional.of(propertyNode.get().getText());
+        }
+
+        if (propertyString.isEmpty() && (signatureProps.contains("") || signatureProps.size() == 0)) {
+            // This is valid
+            return Optional.of(new SpecificFunction(this, signature));
+        }
+
+        if (signature.anyPropertyAllowed()) {
+            return Optional.of(new SpecificFunction(this, signature, propertyString));
+        }
+        
+        String availableProps = (signatureProps.size() == 0) ? "No one" : String.join(", ", signatureProps.stream().filter(prop -> !prop.isEmpty()).toList());
+        if (!propertyString.isPresent()) {
+            String message = "The function '" + node.getSchemaNode().getText() + "' must be used with a property. Available properties are: " + availableProps;
+            diagnostics.add(new SchemaDiagnostic.Builder()
+                .setRange(node.getRange())
+                .setMessage(message)
+                .setSeverity(DiagnosticSeverity.Error)
+                .build());
+            return Optional.empty();
+        }
+
+        if (!properties.contains(propertyString.get())) {
+            String message = "Invalid property '" + propertyString.get() + "'. Available properties are: " + availableProps;
+            diagnostics.add(new SchemaDiagnostic.Builder()
+                .setRange(propertyNode.get().getRange())
+                .setMessage(message)
+                .setSeverity(DiagnosticSeverity.Error)
+                .build());
+            return Optional.empty();
+        }
+
+        if (!signatureProps.contains(propertyString.get())) {
+            String message = "This property is not available with with this signature. Available properties are: " + availableProps;
+            diagnostics.add(new SchemaDiagnostic.Builder()
+                .setRange(propertyNode.get().getRange())
+                .setMessage(message)
+                .setSeverity(DiagnosticSeverity.Warning)
+                .build());
+        }
+
+        Node symbolNode = propertyNode.get();
+        while (!symbolNode.isASTInstance(identifierStr.class) && symbolNode.size() > 0) {
+            symbolNode = symbolNode.get(0);
+        }
+
+        if (symbolNode.isASTInstance(identifierStr.class)) {
+            symbolNode.setSymbol(SymbolType.PROPERTY, context.fileURI())
+                .setStatus(SymbolStatus.BUILTIN_REFERENCE);
+        }
+
+        return Optional.of(new SpecificFunction(this, signature, propertyString));
+    }
+
+    public Optional<FunctionSignature> findFunctionSignature(List<RankNode> arguments, Optional<String> property) {
+
+        List<FunctionSignature> bestMatches = new ArrayList<>();
+        int maxScore = 0;
+
+        for (FunctionSignature signature : signatures) {
+            int score = signature.matchScore(arguments);
+            if (score == maxScore) {
+                bestMatches.add(signature);
+            } else if (score > maxScore) {
+                maxScore = score;
+                bestMatches = new ArrayList<>() {{
+                    add(signature);
+                }};
+            }
+        }
+
+        if (bestMatches.size() == 1) {
+            return Optional.of(bestMatches.get(0));
+        }
+
+        // Filter by the property first
+        List<FunctionSignature> possibleSignatures = new ArrayList<>(bestMatches);
+
+        for (int i = possibleSignatures.size() - 1; i >= 0; i--) {
+            if (!propertyInSet(property, possibleSignatures.get(i).getProperties())) {
+                possibleSignatures.remove(i);
+            }
+        }
+
+        if (possibleSignatures.size() == 1) return Optional.of(possibleSignatures.get(0));
+
+        return Optional.empty();
+    }
+
+    private static boolean propertyInSet(Optional<String> string, Set<String> propertySet) {
+        if (string.isEmpty() && (
+            propertySet.size() == 0 ||
+            propertySet.contains("")
+        )) {
+            return true;
+        }
+
+        if (string.isEmpty()) return false;
+
+        return propertySet.contains(string.get());
+    }
+}

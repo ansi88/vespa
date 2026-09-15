@@ -7,22 +7,23 @@ import com.yahoo.config.model.api.Model;
 import com.yahoo.config.model.api.ServiceInfo;
 import com.yahoo.config.provision.ApplicationId;
 import com.yahoo.config.provision.SystemName;
-import com.yahoo.config.provision.TenantName;
-import com.yahoo.container.jdisc.secretstore.SecretStore;
 import com.yahoo.slime.SlimeUtils;
 import com.yahoo.vespa.config.server.application.Application;
-import com.yahoo.vespa.config.server.tenant.SecretStoreExternalIdRetriever;
 import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
-import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
+import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -31,8 +32,7 @@ import static org.mockito.Mockito.when;
  */
 public class SecretStoreValidatorTest {
 
-    private final SecretStore secretStore = mock(SecretStore.class);
-    private final SecretStoreValidator secretStoreValidator = new SecretStoreValidator(secretStore);
+    private final SecretStoreValidator secretStoreValidator = new SecretStoreValidator();
 
     @Rule
     public final WireMockRule wireMock = new WireMockRule(options().port(4080), true);
@@ -44,10 +44,9 @@ public class SecretStoreValidatorTest {
                 "\"name\":\"store\"," +
                 "\"role\":\"role\"," +
                 "\"region\":\"some-region\"," +
-                "\"parameterName\":\"some-parameter\"" +
+                "\"parameterName\":\"some-parameter\"," +
+                "\"externalId\":\"some-secret-value\"" +
                 "}");
-        var expectedSecretName = SecretStoreExternalIdRetriever.secretName(TenantName.defaultName(), SystemName.PublicCd, "store");
-        when(secretStore.getSecret(expectedSecretName)).thenReturn("some-secret-value");
         stubFor(post(urlEqualTo("/validate-secret-store"))
                 .withRequestBody(equalToJson("{\"awsId\":\"123\"," +
                         "\"name\":\"store\"," +
@@ -62,7 +61,7 @@ public class SecretStoreValidatorTest {
         var response = secretStoreValidator.validateSecretStore(app, SystemName.PublicCd, requestBody);
         var body = new ByteArrayOutputStream();
         response.render(body);
-        assertEquals("is ok", body.toString());
+        assertEquals("is ok", body.toString(StandardCharsets.UTF_8));
     }
 
     private Application mockApplication() {

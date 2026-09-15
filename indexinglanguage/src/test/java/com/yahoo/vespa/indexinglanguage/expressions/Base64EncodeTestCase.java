@@ -10,7 +10,9 @@ import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Simon Thoresen Hult
@@ -28,10 +30,10 @@ public class Base64EncodeTestCase {
     @Test
     public void requireThatInputIsEncoded() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new LongFieldValue(489210573L));
+        ctx.setCurrentValue(new LongFieldValue(489210573L));
         new Base64EncodeExpression().execute(ctx);
 
-        FieldValue val = ctx.getValue();
+        FieldValue val = ctx.getCurrentValue();
         assertTrue(val instanceof StringFieldValue);
         assertEquals("zcIoHQAAAAA=", ((StringFieldValue)val).getString());
     }
@@ -40,7 +42,7 @@ public class Base64EncodeTestCase {
     public void requireThatExpressionCanBeVerified() {
         Expression exp = new Base64EncodeExpression();
         assertVerify(DataType.LONG, exp, DataType.STRING);
-        assertVerifyThrows(null, exp, "Expected long input, but no input is specified");
-        assertVerifyThrows(DataType.STRING, exp, "Expected long input, got string");
+        assertVerifyThrows("Invalid expression 'base64encode': Expected long input, but no input is provided", null, exp);
+        assertVerifyThrows("Invalid expression 'base64encode': Expected long input, got string", DataType.STRING, exp);
     }
 }

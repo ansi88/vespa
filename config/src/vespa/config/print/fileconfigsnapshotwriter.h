@@ -2,7 +2,8 @@
 #pragma once
 
 #include "configsnapshotwriter.h"
-#include <vespa/vespalib/stllike/string.h>
+
+#include <string>
 
 namespace config {
 
@@ -11,11 +12,11 @@ namespace config {
  */
 class FileConfigSnapshotWriter : public ConfigSnapshotWriter {
 public:
-    FileConfigSnapshotWriter(const vespalib::string & fileName);
-    bool write(const ConfigSnapshot & snapshot) override;
+    FileConfigSnapshotWriter(const std::string& fileName);
+    bool write(const ConfigSnapshot& snapshot) override;
+
 private:
-    const vespalib::string _fileName;
+    const std::string _fileName;
 };
 
 } // namespace config
-

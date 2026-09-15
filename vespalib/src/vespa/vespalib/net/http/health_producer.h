@@ -2,19 +2,18 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib {
 
 struct HealthProducer {
     struct Health {
-        bool ok;
-        vespalib::string msg;
-        Health(bool o, const vespalib::string &m) : ok(o), msg(m) {}
+        bool        ok;
+        std::string msg;
+        Health(bool o, const std::string& m) : ok(o), msg(m) {}
     };
     virtual Health getHealth() const = 0;
-    virtual ~HealthProducer() {}
+    virtual ~HealthProducer() = default;
 };
 
 } // namespace vespalib
-

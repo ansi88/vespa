@@ -27,11 +27,13 @@
 
 #pragma once
 
-#include <unistd.h>
-#include <memory>
-#include <vector>
-#include <vespa/vespalib/stllike/string.h>
 #include <vespa/vespalib/util/memory.h>
+
+#include <unistd.h>
+
+#include <memory>
+#include <string>
+#include <vector>
 
 namespace vespalib {
 
@@ -44,7 +46,6 @@ struct FileInfo {
     bool  _plainfile;
     bool  _directory;
     off_t _size;
-
 };
 
 /**
@@ -58,7 +59,7 @@ struct FileInfo {
 class File {
 private:
     int         _fd;
-    string      _filename;
+    std::string _filename;
 
     void sync();
     /**
@@ -67,6 +68,7 @@ private:
      * yet, you will get fileinfo describing an empty file.
      */
     FileInfo stat() const;
+
 public:
     using UP = std::unique_ptr<File>;
 
@@ -81,7 +83,7 @@ public:
     /** Closes the file if not instructed to do otherwise. */
     ~File();
 
-    const string& getFilename() const { return _filename; }
+    const std::string& getFilename() const { return _filename; }
 
     void open(int flags, bool autoCreateDirectories = false);
 
@@ -118,7 +120,7 @@ public:
      * @throw IoException If we failed to write to the file.
      * @return            Always return bufsize.
      */
-    off_t write(const void *buf, size_t bufsize, off_t offset);
+    off_t write(const void* buf, size_t bufsize, off_t offset);
 
     /**
      * Read characters from a file.
@@ -133,7 +135,7 @@ public:
      * @return            The number of bytes actually read. If less than
      *                    bufsize, this indicates that EOF was reached.
      */
-    size_t read(void *buf, size_t bufsize, off_t offset) const;
+    size_t read(void* buf, size_t bufsize, off_t offset) const;
 
     /**
      * Read the file into a string.
@@ -143,7 +145,7 @@ public:
      * @throw   IoException If we failed to read from file.
      * @return  The content of the file.
      */
-    string readAll() const;
+    std::string readAll() const;
 
     /**
      * Read a file into a string.
@@ -154,7 +156,7 @@ public:
      * @throw   IoException If we failed to read from file.
      * @return  The content of the file.
      */
-    static string readAll(std::string_view path);
+    static std::string readAll(std::string_view path);
 
     /**
      * Sync file or directory.
@@ -173,9 +175,9 @@ public:
 /**
  * List the contents of the given directory.
  */
-using DirectoryList = std::vector<string>;
-extern DirectoryList listDirectory(const string & path);
-string dirname(std::string_view name);
-string getOpenErrorString(const int osError, std::string_view name);
+using DirectoryList = std::vector<std::string>;
+extern DirectoryList listDirectory(const std::string& path);
+std::string dirname(std::string_view name);
+std::string getOpenErrorString(const int osError, std::string_view name);
 
-} // vespalib
+} // namespace vespalib

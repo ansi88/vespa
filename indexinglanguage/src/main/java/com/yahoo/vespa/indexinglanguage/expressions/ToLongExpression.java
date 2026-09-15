@@ -9,29 +9,25 @@ import com.yahoo.document.datatypes.LongFieldValue;
  */
 public final class ToLongExpression extends Expression {
 
-    public ToLongExpression() {
-        super(UnresolvedDataType.INSTANCE);
-    }
-
     @Override
-    protected void doExecute(ExecutionContext context) {
-        context.setValue(new LongFieldValue(Long.valueOf(String.valueOf(context.getValue()))));
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
+    public DataType setInputType(DataType input, TypeContext context) {
+        super.setInputType(input, context);
         return DataType.LONG;
     }
 
     @Override
-    public String toString() {
-        return "to_long";
+    public DataType setOutputType(DataType output, TypeContext context) {
+        super.setOutputType(DataType.LONG, output, null, context);
+        return getInputType(context);
     }
+
+    @Override
+    protected void doExecute(ExecutionContext context) {
+        context.setCurrentValue(new LongFieldValue(Long.valueOf(String.valueOf(context.getCurrentValue()))));
+    }
+
+    @Override
+    public String toString() { return "to_long"; }
 
     @Override
     public boolean equals(Object obj) {

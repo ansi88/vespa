@@ -1,8 +1,11 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "nativefieldmatchfeature.h"
-#include "valuefeature.h"
+
 #include "utils.h"
+#include "valuefeature.h"
+
+#include <vespa/searchlib/fef/featurenamebuilder.h>
 #include <vespa/searchlib/fef/fieldinfo.h>
 #include <vespa/searchlib/fef/indexproperties.h>
 #include <vespa/searchlib/fef/itablemanager.h>
@@ -16,15 +19,11 @@ namespace search::features {
 
 const uint32_t NativeFieldMatchParam::NOT_DEF_FIELD_LENGTH(std::numeric_limits<uint32_t>::max());
 
-NativeFieldMatchExecutorSharedState::NativeFieldMatchExecutorSharedState(const IQueryEnvironment& env,
+NativeFieldMatchExecutorSharedState::NativeFieldMatchExecutorSharedState(const IQueryEnvironment&      env,
                                                                          const NativeFieldMatchParams& params)
-    : fef::Anything(),
-      _params(params),
-      _query_terms(),
-      _divisor(0)
-{
+    : fef::Anything(), _params(params), _query_terms(), _divisor(0) {
     QueryTermHelper queryTerms(env);
-    for (const QueryTerm & qtTmp : queryTerms.terms()) {
+    for (const QueryTerm& qtTmp : queryTerms.terms()) {
         if (qtTmp.termData()->getWeight().percent() != 0) // only consider query terms with contribution
         {
             MyQueryTerm qt(qtTmp);
@@ -32,15 +31,16 @@ NativeFieldMatchExecutorSharedState::NativeFieldMatchExecutorSharedState(const I
             uint32_t totalFieldWeight = 0;
             for (FRA iter(*qt.termData()); iter.valid(); iter.next()) {
                 const ITermFieldData& tfd = iter.get();
-                uint32_t fieldId = tfd.getFieldId();
+                uint32_t              fieldId = tfd.getFieldId();
                 if (_params.considerField(fieldId)) { // only consider fields with contribution
-                    totalFieldWeight += _params.vector[fieldId].fieldWeight;
-                    qt.handles().emplace_back(tfd.getHandle(), &tfd);
+                    const auto& param = _params.vector[fieldId];
+                    totalFieldWeight += param.fieldWeight;
+                    qt.handles().push_back({tfd.getHandle(), &tfd, &param, param.fieldWeight / param.maxTableSum});
                 }
             }
             if (!qt.handles().empty()) {
                 _query_terms.push_back(qt);
-                _divisor += (qt.significance() * qt.termData()->getWeight().percent() * totalFieldWeight);
+                _divisor += qt.query_weight() * totalFieldWeight;
             }
         }
     }
@@ -48,134 +48,127 @@ NativeFieldMatchExecutorSharedState::NativeFieldMatchExecutorSharedState(const I
 
 NativeFieldMatchExecutorSharedState::~NativeFieldMatchExecutorSharedState() = default;
 
-feature_t
-NativeFieldMatchExecutor::calculateScore(const MyQueryTerm &qt, uint32_t docId)
-{
+feature_t NativeFieldMatchExecutor::calculateScore(const MyQueryTerm& qt, uint32_t docId, size_t& tfmd_idx) {
     feature_t termScore = 0;
     for (size_t i = 0; i < qt.handles().size(); ++i) {
-        TermFieldHandle tfh = qt.handles()[i].first;
-        const TermFieldMatchData *tfmd = _md->resolveTermField(tfh);
-        const NativeFieldMatchParam & param = _params.vector[tfmd->getFieldId()];
-        if (tfmd->getDocId() == docId) { // do we have a hit
+        const auto&                  handle = qt.handles()[i];
+        const TermFieldMatchData*    tfmd = _tfmds[tfmd_idx++];
+        const NativeFieldMatchParam& param = *handle.param;
+        if (tfmd->has_ranking_data(docId)) { // do we have a hit
             FieldPositionsIterator pos = tfmd->getIterator();
             if (pos.valid()) {
                 uint32_t fieldLength = getFieldLength(param, pos.getFieldLength());
-                termScore +=
-                    ((getFirstOccBoost(param, pos.getPosition(), fieldLength) * param.firstOccImportance) +
-                     (getNumOccBoost(param, pos.size(), fieldLength) * (1 - param.firstOccImportance))) *
-                    param.fieldWeight / param.maxTableSum;
+                termScore += ((getFirstOccBoost(param, pos.getPosition(), fieldLength) * param.firstOccImportance) +
+                              (getNumOccBoost(param, pos.size(), fieldLength) * (1 - param.firstOccImportance))) *
+                             handle.field_scale;
             }
         }
     }
-    termScore *= (qt.significance() * qt.termData()->getWeight().percent());
-    return termScore;
+    return termScore * qt.query_weight();
 }
 
 NativeFieldMatchExecutor::NativeFieldMatchExecutor(const NativeFieldMatchExecutorSharedState& shared_state)
     : FeatureExecutor(),
       _params(shared_state.get_params()),
       _queryTerms(shared_state.get_query_terms()),
-      _divisor(shared_state.get_divisor()),
-      _md(nullptr)
-{
+      _score_scale(shared_state.get_divisor() > 0 ? 1.0 / shared_state.get_divisor() : 1.0),
+      _tfmds() {
+    size_t num_handles = 0;
     for (const auto& qt : _queryTerms) {
         for (const auto& handle : qt.handles()) {
             // Record that we need normal term field match data
-            (void) handle.second->getHandle(MatchDataDetails::Normal);
+            (void)handle.term_field->getHandle(MatchDataDetails::Normal);
+            ++num_handles;
+        }
+    }
+    _tfmds.reserve(num_handles);
+}
+
+void NativeFieldMatchExecutor::execute(uint32_t docId) {
+    feature_t score = 0;
+    size_t    tfmd_idx = 0;
+    for (size_t i = 0; i < _queryTerms.size(); ++i) {
+        score += calculateScore(_queryTerms[i], docId, tfmd_idx);
+    }
+    outputs().set_number(0, score * _score_scale);
+}
+
+void NativeFieldMatchExecutor::handle_bind_match_data(const fef::MatchData& md) {
+    _tfmds.clear();
+    for (const auto& qt : _queryTerms) {
+        for (const auto& handle : qt.handles()) {
+            _tfmds.push_back(md.resolveTermField(handle.tfh));
         }
     }
 }
 
-void
-NativeFieldMatchExecutor::execute(uint32_t docId)
-{
-    feature_t score = 0;
-    for (size_t i = 0; i < _queryTerms.size(); ++i) {
-        score += calculateScore(_queryTerms[i], docId);
-    }
-    if (_divisor > 0) {
-        score /= _divisor;
-    }
-    outputs().set_number(0, score);
-}
-
-void
-NativeFieldMatchExecutor::handle_bind_match_data(const fef::MatchData &md)
-{
-    _md = &md;
-}
-
-NativeFieldMatchBlueprint::NativeFieldMatchBlueprint() :
-    Blueprint("nativeFieldMatch"),
-    _params(),
-    _defaultFirstOcc("expdecay(8000,12.50)"),
-    _defaultNumOcc("loggrowth(1500,4000,19)"),
-    _shared_state_key()
-{
+NativeFieldMatchBlueprint::NativeFieldMatchBlueprint()
+    : Blueprint("nativeFieldMatch"),
+      _params(),
+      _defaultFirstOcc("expdecay(8000,12.50)"),
+      _defaultNumOcc("loggrowth(1500,4000,19)"),
+      _shared_state_key() {
 }
 
 NativeFieldMatchBlueprint::~NativeFieldMatchBlueprint() = default;
 
-void
-NativeFieldMatchBlueprint::visitDumpFeatures(const IIndexEnvironment & env,
-                                             IDumpFeatureVisitor & visitor) const
-{
-    (void) env;
+void NativeFieldMatchBlueprint::visitDumpFeatures(const IIndexEnvironment& env, IDumpFeatureVisitor& visitor) const {
+    (void)env;
     visitor.visitDumpFeature(getBaseName());
 }
 
-Blueprint::UP
-NativeFieldMatchBlueprint::createInstance() const
-{
+Blueprint::UP NativeFieldMatchBlueprint::createInstance() const {
     return std::make_unique<NativeFieldMatchBlueprint>();
 }
 
-bool
-NativeFieldMatchBlueprint::setup(const IIndexEnvironment & env,
-                                 const ParameterList & params)
-{
+bool NativeFieldMatchBlueprint::setup(const IIndexEnvironment& env, const ParameterList& params) {
     vespalib::asciistream shared_state_key_builder;
     _params.resize(env.getNumFields());
     FieldWrapper fields(env, params, FieldType::INDEX);
-    vespalib::string defaultFirstOccImportance = env.getProperties().lookup(getBaseName(), "firstOccurrenceImportance").get("0.5");
+    std::string  defaultFirstOccImportance =
+        env.getProperties().lookup(getBaseName(), "firstOccurrenceImportance").get("0.5");
     shared_state_key_builder << "fef.nativeFieldMatch[";
     bool first_field = true;
     for (uint32_t i = 0; i < fields.getNumFields(); ++i) {
-        const FieldInfo * info = fields.getField(i);
-        uint32_t fieldId = info->id();
-        NativeFieldMatchParam & param = _params.vector[fieldId];
+        const FieldInfo*       info = fields.getField(i);
+        uint32_t               fieldId = info->id();
+        NativeFieldMatchParam& param = _params.vector[fieldId];
         param.field = true;
-        if ((param.firstOccTable =
-             util::lookupTable(env, getBaseName(), "firstOccurrenceTable", info->name(), _defaultFirstOcc)) == NULL)
+        if ((param.firstOccTable = util::lookupTable(env, getBaseName(), "firstOccurrenceTable", info->name(),
+                                                     _defaultFirstOcc)) == nullptr)
         {
             return false;
         }
-        if ((param.numOccTable =
-             util::lookupTable(env, getBaseName(), "occurrenceCountTable", info->name(), _defaultNumOcc)) == NULL)
+        if ((param.numOccTable = util::lookupTable(env, getBaseName(), "occurrenceCountTable", info->name(),
+                                                   _defaultNumOcc)) == nullptr)
         {
             return false;
         }
         param.fieldWeight = indexproperties::FieldWeight::lookup(env.getProperties(), info->name());
-        if (param.fieldWeight == 0 ||
-            info->isFilter())
-        {
+        if (param.fieldWeight == 0 || info->isFilter()) {
             param.field = false;
         }
-        Property afl = env.getProperties().lookup(getBaseName(), "averageFieldLength", info->name());
+        std::string alt_name = FeatureNameBuilder().baseName(getBaseName()).parameter(info->name()).buildName();
+
+        Property afl = env.getProperties().lookup(alt_name, "averageFieldLength");
+        if (!afl.found()) {
+            afl = env.getProperties().lookup(getBaseName(), "averageFieldLength", info->name());
+        }
         if (afl.found()) {
             param.averageFieldLength = util::strToNum<uint32_t>(afl.get());
         }
 
-        param.firstOccImportance = util::strToNum<feature_t>
-            (env.getProperties().lookup(getBaseName(), "firstOccurrenceImportance", info->name()).
-             get(defaultFirstOccImportance));
+        std::string alt_importance =
+            env.getProperties().lookup(alt_name, "firstOccurrenceImportance").get(defaultFirstOccImportance);
+        std::string importance =
+            env.getProperties().lookup(getBaseName(), "firstOccurrenceImportance", info->name()).get(alt_importance);
+        param.firstOccImportance = util::strToNum<feature_t>(importance);
 
         if (NativeRankBlueprint::useTableNormalization(env)) {
-            const Table * fo = param.firstOccTable;
-            const Table * no = param.numOccTable;
-            if (fo != NULL && no != NULL) {
-                double value = (fo->max() * param.firstOccImportance) +
-                    (no->max() * (1 - param.firstOccImportance));
+            const Table* fo = param.firstOccTable;
+            const Table* no = param.numOccTable;
+            if (fo != nullptr && no != nullptr) {
+                double value = (fo->max() * param.firstOccImportance) + (no->max() * (1 - param.firstOccImportance));
                 _params.setMaxTableSums(fieldId, value);
             }
         }
@@ -190,17 +183,17 @@ NativeFieldMatchBlueprint::setup(const IIndexEnvironment & env,
     }
     shared_state_key_builder << "]";
     _shared_state_key = shared_state_key_builder.view();
-    _params.minFieldLength = util::strToNum<uint32_t>(env.getProperties().lookup
-                                                      (getBaseName(), "minFieldLength").get("6"));
+    _params.minFieldLength =
+        util::strToNum<uint32_t>(env.getProperties().lookup(getBaseName(), "minFieldLength").get("6"));
 
     describeOutput("score", "The native field match score");
     return true;
 }
 
-FeatureExecutor &
-NativeFieldMatchBlueprint::createExecutor(const IQueryEnvironment &env, vespalib::Stash &stash) const
-{
-    auto *shared_state = dynamic_cast<const NativeFieldMatchExecutorSharedState *>(env.getObjectStore().get(_shared_state_key));
+FeatureExecutor& NativeFieldMatchBlueprint::createExecutor(const IQueryEnvironment& env,
+                                                           vespalib::Stash&         stash) const {
+    auto* shared_state =
+        dynamic_cast<const NativeFieldMatchExecutorSharedState*>(env.getObjectStore().get(_shared_state_key));
     if (shared_state == nullptr) {
         shared_state = &stash.create<NativeFieldMatchExecutorSharedState>(env, _params);
     }
@@ -211,12 +204,12 @@ NativeFieldMatchBlueprint::createExecutor(const IQueryEnvironment &env, vespalib
     }
 }
 
-void
-NativeFieldMatchBlueprint::prepareSharedState(const IQueryEnvironment &queryEnv, IObjectStore &objectStore) const {
+void NativeFieldMatchBlueprint::prepareSharedState(const IQueryEnvironment& queryEnv,
+                                                   IObjectStore&            objectStore) const {
     QueryTermHelper::lookupAndStoreQueryTerms(queryEnv, objectStore);
     if (objectStore.get(_shared_state_key) == nullptr) {
         objectStore.add(_shared_state_key, std::make_unique<NativeFieldMatchExecutorSharedState>(queryEnv, _params));
     }
 }
 
-}
+} // namespace search::features

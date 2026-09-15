@@ -1,75 +1,73 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
-#include <vespa/searchcore/proton/server/proton_disk_layout.h>
 #include <vespa/searchcore/proton/common/doctypename.h>
+#include <vespa/searchcore/proton/server/proton_disk_layout.h>
 #include <vespa/searchcore/proton/test/port_numbers.h>
 #include <vespa/searchcore/proton/test/transport_helper.h>
 #include <vespa/searchlib/index/dummyfileheadercontext.h>
-#include <vespa/searchlib/transactionlog/translogserver.h>
 #include <vespa/searchlib/transactionlog/translogclient.h>
+#include <vespa/searchlib/transactionlog/translogserver.h>
+#include <vespa/vespalib/gtest/gtest.h>
 #include <vespa/vespalib/io/fileutil.h>
 #include <vespa/vespalib/util/stringfmt.h>
-#include <filesystem>
-#include <vespa/vespalib/testkit/test_kit.h>
-#include <vespa/vespalib/testkit/test_master.hpp>
-#include <vespa/vespalib/test/insertion_operators.h>
 
-using search::index::DummyFileHeaderContext;
-using search::transactionlog::client::TransLogClient;
-using search::transactionlog::TransLogServer;
+#include <filesystem>
+
 using proton::DocTypeName;
 using proton::ProtonDiskLayout;
 using proton::Transport;
+using search::index::DummyFileHeaderContext;
+using search::transactionlog::TransLogServer;
+using search::transactionlog::client::TransLogClient;
 
 namespace {
 constexpr unsigned int tlsPort = proton::test::port_numbers::proton_disk_layout_tls_port;
 
-const vespalib::string baseDir("testdb");
-const vespalib::string documentsDir(baseDir + "/documents");
+const std::string baseDir("testdb");
+const std::string documentsDir(baseDir + "/documents");
 
-struct FixtureBase
-{
+struct FixtureBase {
     FixtureBase() { std::filesystem::remove_all(std::filesystem::path(baseDir)); }
     ~FixtureBase() { std::filesystem::remove_all(std::filesystem::path(baseDir)); }
 };
 
 struct DiskLayoutFixture {
-    DummyFileHeaderContext  _fileHeaderContext;
-    Transport               _transport;
-    TransLogServer          _tls;
-    vespalib::string        _tlsSpec;
-    ProtonDiskLayout        _diskLayout;
+    DummyFileHeaderContext _fileHeaderContext;
+    Transport              _transport;
+    TransLogServer         _tls;
+    std::string            _tlsSpec;
+    ProtonDiskLayout       _diskLayout;
 
     DiskLayoutFixture();
     ~DiskLayoutFixture();
 
-    void createDirs(const std::set<vespalib::string> &dirs) {
-        for (const auto &dir : dirs) {
+    void createDirs(const std::set<std::string>& dirs) {
+        for (const auto& dir : dirs) {
             std::filesystem::create_directory(std::filesystem::path(documentsDir + "/" + dir));
         }
     }
-    void createDomains(const std::set<vespalib::string> &domains) {
+    void createDomains(const std::set<std::string>& domains) {
         TransLogClient tlc(_transport.transport(), _tlsSpec);
-        for (const auto &domain : domains) {
+        for (const auto& domain : domains) {
             ASSERT_TRUE(tlc.create(domain));
         }
     }
 
-    std::set<vespalib::string> listDomains() {
-        std::vector<vespalib::string> domainVector;
-        TransLogClient tlc(_transport.transport(), _tlsSpec);
-        ASSERT_TRUE(tlc.listDomains(domainVector));
-        std::set<vespalib::string> domains;
-        for (const auto &domain : domainVector) {
+    std::set<std::string> listDomains() {
+        std::vector<std::string> domainVector;
+        TransLogClient           tlc(_transport.transport(), _tlsSpec);
+        EXPECT_TRUE(tlc.listDomains(domainVector));
+        std::set<std::string> domains;
+        for (const auto& domain : domainVector) {
             domains.emplace(domain);
         }
         return domains;
     }
 
-    std::set<vespalib::string> listDirs() {
-        std::set<vespalib::string> dirs;
-        auto names = vespalib::listDirectory(documentsDir);
-        for (const auto &name : names) {
+    std::set<std::string> listDirs() {
+        std::set<std::string> dirs;
+        auto                  names = vespalib::listDirectory(documentsDir);
+        for (const auto& name : names) {
             if (std::filesystem::is_directory(std::filesystem::path(documentsDir + "/" + name))) {
                 dirs.emplace(name);
             }
@@ -77,22 +75,12 @@ struct DiskLayoutFixture {
         return dirs;
     }
 
-    void initAndPruneUnused(const std::set<vespalib::string> names)
-    {
+    void initAndPruneUnused(const std::set<std::string> names) {
         std::set<DocTypeName> docTypeNames;
-        for (const auto &name: names) {
+        for (const auto& name : names) {
             docTypeNames.emplace(name);
         }
         _diskLayout.initAndPruneUnused(docTypeNames);
-    }
-
-    void assertDirs(const std::set<vespalib::string> &expDirs) {
-        EXPECT_EQUAL(expDirs, listDirs());
-    }
-
-    void assertDomains(const std::set<vespalib::string> &expDomains)
-    {
-        EXPECT_EQUAL(expDomains, listDomains());
     }
 };
 
@@ -101,30 +89,28 @@ DiskLayoutFixture::DiskLayoutFixture()
       _transport(),
       _tls(_transport.transport(), "tls", tlsPort, baseDir, _fileHeaderContext),
       _tlsSpec(vespalib::make_string("tcp/localhost:%u", tlsPort)),
-      _diskLayout(_transport.transport(), baseDir, _tlsSpec)
-{
+      _diskLayout(_transport.transport(), baseDir, _tlsSpec) {
 }
 
 DiskLayoutFixture::~DiskLayoutFixture() = default;
 
-struct Fixture : public FixtureBase, public DiskLayoutFixture
-{
-    Fixture()
-        : FixtureBase(),
-          DiskLayoutFixture()
-    {
-    }
+struct Fixture : public FixtureBase, public DiskLayoutFixture {
+    Fixture() : FixtureBase(), DiskLayoutFixture() {}
+    ~Fixture();
 };
 
+Fixture::~Fixture() = default;
+
+} // namespace
+
+TEST(ProtonDiskLayoutTest, require_that_empty_config_is_ok) {
+    Fixture f;
+    EXPECT_EQ((std::set<std::string>{}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{}), f.listDomains());
 }
 
-TEST_F("require that empty config is ok", Fixture) {
-    TEST_DO(f.assertDirs({}));
-    TEST_DO(f.assertDomains({}));
-}
-
-TEST_F("require that disk layout is preserved", FixtureBase)
-{
+TEST(ProtonDiskLayoutTest, require_that_disk_layout_is_preserved) {
+    FixtureBase f;
     {
         DiskLayoutFixture diskLayout;
         diskLayout.createDirs({"foo", "bar"});
@@ -132,55 +118,55 @@ TEST_F("require that disk layout is preserved", FixtureBase)
     }
     {
         DiskLayoutFixture diskLayout;
-        TEST_DO(diskLayout.assertDirs({"foo", "bar"}));
-        TEST_DO(diskLayout.assertDomains({"bar", "baz"}));
+        EXPECT_EQ((std::set<std::string>{"foo", "bar"}), diskLayout.listDirs());
+        EXPECT_EQ((std::set<std::string>{"bar", "baz"}), diskLayout.listDomains());
     }
 }
 
-TEST_F("require that used dir is preserved", Fixture)
-{
+TEST(ProtonDiskLayoutTest, require_that_used_dir_is_preserved) {
+    Fixture f;
     f.createDirs({"foo"});
     f.createDomains({"foo"});
     f.initAndPruneUnused({"foo"});
-    TEST_DO(f.assertDirs({"foo"}));
-    TEST_DO(f.assertDomains({"foo"}));
+    EXPECT_EQ((std::set<std::string>{"foo"}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{"foo"}), f.listDomains());
 }
 
-TEST_F("require that unused dir is removed", Fixture)
-{
+TEST(ProtonDiskLayoutTest, require_that_unused_dir_is_removed) {
+    Fixture f;
     f.createDirs({"foo"});
     f.createDomains({"foo"});
     f.initAndPruneUnused({"bar"});
-    TEST_DO(f.assertDirs({}));
-    TEST_DO(f.assertDomains({}));
+    EXPECT_EQ((std::set<std::string>{}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{}), f.listDomains());
 }
 
-TEST_F("require that interrupted remove is completed", Fixture)
-{
+TEST(ProtonDiskLayoutTest, require_that_interrupted_remove_is_completed) {
+    Fixture f;
     f.createDirs({"foo.removed"});
     f.createDomains({"foo"});
     f.initAndPruneUnused({"foo"});
-    TEST_DO(f.assertDirs({}));
-    TEST_DO(f.assertDomains({}));
+    EXPECT_EQ((std::set<std::string>{}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{}), f.listDomains());
 }
 
-TEST_F("require that early interrupted remove is completed", Fixture)
-{
+TEST(ProtonDiskLayoutTest, require_that_early_interrupted_remove_is_completed) {
+    Fixture f;
     f.createDirs({"foo", "foo.removed"});
     f.createDomains({"foo"});
     f.initAndPruneUnused({"foo"});
-    TEST_DO(f.assertDirs({}));
-    TEST_DO(f.assertDomains({}));
+    EXPECT_EQ((std::set<std::string>{}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{}), f.listDomains());
 }
 
-TEST_F("require that live document db dir remove works", Fixture)
-{
+TEST(ProtonDiskLayoutTest, require_that_live_document_db_dir_remove_works) {
+    Fixture f;
     f.createDirs({"foo"});
     f.createDomains({"foo"});
     f.initAndPruneUnused({"foo"});
-    TEST_DO(f.assertDirs({"foo"}));
-    TEST_DO(f.assertDomains({"foo"}));
+    EXPECT_EQ((std::set<std::string>{"foo"}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{"foo"}), f.listDomains());
     f._diskLayout.remove(DocTypeName("foo"));
-    TEST_DO(f.assertDirs({}));
-    TEST_DO(f.assertDomains({}));
+    EXPECT_EQ((std::set<std::string>{}), f.listDirs());
+    EXPECT_EQ((std::set<std::string>{}), f.listDomains());
 }

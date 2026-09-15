@@ -1,10 +1,14 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.yql;
 
+import com.yahoo.language.Language;
 import com.yahoo.prelude.Index;
 import com.yahoo.prelude.IndexFacts;
 import com.yahoo.prelude.IndexModel;
 import com.yahoo.prelude.SearchDefinition;
+import com.yahoo.prelude.query.IntItem;
+import com.yahoo.prelude.query.Limit;
+import com.yahoo.prelude.query.RangeItem;
 import com.yahoo.prelude.query.SameElementItem;
 import com.yahoo.search.Query;
 import com.yahoo.search.grouping.Continuation;
@@ -31,6 +35,8 @@ import com.yahoo.search.query.parser.ParserEnvironment;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class VespaSerializerTestCase {
 
@@ -124,6 +130,12 @@ public class VespaSerializerTestCase {
     }
 
     @Test
+    void testLabelWrapper() {
+        parseAndConfirm("labeled(description contains \"a\", \"mylabel\", 2.5)");
+        parseAndConfirm("labeled((description contains \"a\" OR title contains \"b\"), \"my \\\"quoted\\\" label\", 1.0)");
+    }
+
+    @Test
     void testAndNot() {
         parseAndConfirm("(description contains \"a\") AND !(title contains \"that\")");
     }
@@ -142,19 +154,47 @@ public class VespaSerializerTestCase {
     }
 
     @Test
+    void testGeoBoundingBox() {
+        parseAndConfirm("geoBoundingBox(workplace, -63.418417, -10.433033, 63.5, 10.5)");
+    }
+
+    @Test
     void testNear() {
         parseAndConfirm("title contains near(\"a\", \"b\")");
         parseAndConfirm("title contains ({distance: 50}near(\"a\", \"b\"))");
     }
 
     @Test
+    void testPhraseInNear() {
+        parseAndConfirm("default contains ({distance: 18}near(\"sales\", phrase(\"m\\u16C1\", \"ampersandsign\\u16C1\", \"a\")))",
+                        "default contains ({distance: 18}near('sales',phrase('mᛁ','ampersandsignᛁ','a')))");
+    }
+
+    @Test
+    void testEquivInNear() {
+        parseAndConfirm("default contains ({distance: 5}near(\"A\", equiv(\"B\", \"C\")))",
+                        "default CONTAINS ({distance:5,exclusionDistance:5}near('A', !equiv('B', 'C')))");
+    }
+
+    @Test
     void testNearestNeighbor() {
-        parseAndConfirm("{label: \"foo\", targetNumHits: 1000}nearestNeighbor(semantic_embedding, my_property)");
-        parseAndConfirm("{targetNumHits: 42}nearestNeighbor(semantic_embedding, my_property)");
-        parseAndConfirm("{targetNumHits: 1, hnsw.exploreAdditionalHits: 76}nearestNeighbor(semantic_embedding, my_property)");
-        parseAndConfirm("{targetNumHits: 2, approximate: false}nearestNeighbor(semantic_embedding, my_property)");
-        parseAndConfirm("{targetNumHits: 3, hnsw.exploreAdditionalHits: 67, approximate: false}nearestNeighbor(semantic_embedding, my_property)");
-        parseAndConfirm("{targetNumHits: 4, distanceThreshold: 100100.25}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{label: \"foo\", targetHits: 1000}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 42}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 1, hnsw.exploreAdditionalHits: 76}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 2, approximate: false}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 3, hnsw.exploreAdditionalHits: 67, approximate: false}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 4, distanceThreshold: 100100.25}nearestNeighbor(semantic_embedding, my_property)");
+    }
+
+    @Test
+    void testNearestNeighborWithHnswTuningParameters() {
+        parseAndConfirm("{targetHits: 10, hnsw.approximateThreshold: 0.05}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.explorationSlack: 0.1}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.filterFirstExploration: 0.3}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.filterFirstThreshold: 0.2}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.postFilterThreshold: 0.8}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.targetHitsMaxAdjustmentFactor: 20.0}nearestNeighbor(semantic_embedding, my_property)");
+        parseAndConfirm("{targetHits: 10, hnsw.filterFirstExploration: 0.25, hnsw.filterFirstThreshold: 0.1, hnsw.postFilterThreshold: 0.9}nearestNeighbor(semantic_embedding, my_property)");
     }
 
     @Test
@@ -193,6 +233,19 @@ public class VespaSerializerTestCase {
     @Test
     void testAnnotatedRange() {
         parseAndConfirm("{filter: true}range(title, 1, 500)");
+    }
+
+    @Test
+    void testStringRange() {
+        parser = new YqlParser(new ParserEnvironment().setIndexFacts(createIndexFactsForInTest()));
+        parseAndConfirm("range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{bounds: \"leftOpen\"}range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{bounds: \"rightOpen\"}range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{bounds: \"open\"}range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{filter: true, bounds: \"open\"}range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{filter: true}range(string, \"aaa\", \"zzz\")");
+        parseAndConfirm("{bounds: \"open\"}range(string, -Infinity, Infinity)");
+        parseAndConfirm("{bounds: \"open\"}range(string, -Infinity, Infinity)");
     }
 
     @Test
@@ -261,13 +314,141 @@ public class VespaSerializerTestCase {
     }
 
     @Test
+    void testSameElementWithRange() {
+        SameElementItem sameElement = new SameElementItem("myMap");
+        sameElement.addItem(new IntItem(209, "key"));
+        sameElement.addItem(new RangeItem(10, 20, "value"));
+        assertEquals("myMap contains sameElement(key = 209, range(value, 10, 20))",
+                     VespaSerializer.serialize(sameElement));
+    }
+
+    @Test
     void testSameElement() {
         SameElementItem sameElement = new SameElementItem("ss");
         sameElement.addItem(new WordItem("a", "f1"));
         sameElement.addItem(new WordItem("b", "f2"));
         assertEquals("ss:{f1:a f2:b}", sameElement.toString());
         assertEquals("ss contains sameElement(f1 contains ({implicitTransforms: false}\"a\"), f2 contains ({implicitTransforms: false}\"b\"))", VespaSerializer.serialize(sameElement));
+    }
 
+    @Test
+    void testSameElementWithElementFilter() {
+        SameElementItem sameElement = new SameElementItem("bools");
+        sameElement.setElementFilter(List.of(1, 2, 5));
+        sameElement.addItem(new WordItem("true", ""));
+        assertEquals("bools contains ({elementFilter:[1, 2, 5]} sameElement(({implicitTransforms: false}\"true\")))",
+                     VespaSerializer.serialize(sameElement));
+
+        SameElementItem single = new SameElementItem("bools");
+        single.setElementFilter(List.of(42));
+        single.addItem(new WordItem("true", ""));
+        assertEquals("bools contains ({elementFilter:[42]} sameElement(({implicitTransforms: false}\"true\")))",
+                     VespaSerializer.serialize(single));
+    }
+
+    @Test
+    void testSameElementWithNumericChild() {
+        // The ints[1] = 2 sugar produces an IntItem child with empty index, which must serialize as a bare number
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(2))", "ints[1] = 2");
+        parseAndConfirm("doubles contains ({elementFilter:[0]} sameElement(1.5))", "doubles[0] = 1.5");
+        parseAndConfirm("bools contains ({elementFilter:[0]} sameElement(\"true\"))", "bools[0] = true");
+
+        // The serialized forms are stable: they parse back to themselves
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(2))");
+        parseAndConfirm("doubles contains ({elementFilter:[0]} sameElement(1.5))");
+
+        // Map sugar children keep their key/value indexes
+        parseAndConfirm("my_map contains sameElement(key contains \"foo\", value = 10)", "my_map{\"foo\"} = 10");
+    }
+
+    @Test
+    void testSameElementWithNumericRangeChild() {
+        // A non-equality IntItem child with an empty index must also serialize as a bare
+        // range/comparison, not with a "default" field prefix (same bug as equality, for the
+        // open-bound and two-sided-range branches of NumberSerializer).
+        SameElementItem lowerBound = new SameElementItem("ints");
+        lowerBound.setElementFilter(List.of(1));
+        lowerBound.addItem(new IntItem(new com.yahoo.prelude.query.Limit(2, true), com.yahoo.prelude.query.Limit.POSITIVE_INFINITY, ""));
+        assertEquals("ints contains ({elementFilter:[1]} sameElement(_ >= 2))",
+                     VespaSerializer.serialize(lowerBound));
+
+        SameElementItem upperBound = new SameElementItem("ints");
+        upperBound.setElementFilter(List.of(1));
+        upperBound.addItem(new IntItem(com.yahoo.prelude.query.Limit.NEGATIVE_INFINITY, new com.yahoo.prelude.query.Limit(5, true), ""));
+        assertEquals("ints contains ({elementFilter:[1]} sameElement(_ <= 5))",
+                     VespaSerializer.serialize(upperBound));
+
+        SameElementItem range = new SameElementItem("ints");
+        range.setElementFilter(List.of(1));
+        range.addItem(new IntItem(new com.yahoo.prelude.query.Limit(2, true), new com.yahoo.prelude.query.Limit(5, true), ""));
+        assertEquals("ints contains ({elementFilter:[1]} sameElement(range(_, 2, 5)))",
+                     VespaSerializer.serialize(range));
+
+        // The serialized forms are stable: they parse back to themselves
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(_ >= 2))");
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(_ <= 5))");
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(range(_, 2, 5)))");
+        parseAndConfirm("ints contains ({elementFilter:[1]} sameElement(({bounds: \"leftOpen\"}range(_, 2, 5))))");
+    }
+
+    @Test
+    void testSameElementValuePlaceholder() {
+        parser = new YqlParser(new ParserEnvironment().setIndexFacts(createIndexFactsForInTest()));
+
+        // Every syntax which requires a field name uses the "_" placeholder for the value of the element itself
+        parseAndConfirm("field contains sameElement(_ >= 2)");
+        parseAndConfirm("field contains sameElement(range(_, 2, 5))");
+        parseAndConfirm("field contains sameElement(_ = true)");
+        parseAndConfirm("string contains sameElement(range(_, \"a\", \"b\"))");
+        parseAndConfirm("string contains sameElement(_ matches \"f.*\")");
+        parseAndConfirm("field contains sameElement(_ in (1, 2))");
+        parseAndConfirm("string contains sameElement(_ in (\"a\", \"b\"))");
+
+        // Syntaxes which are valid without a field name keep serializing without one
+        parseAndConfirm("field contains sameElement(2)", "field contains sameElement(_ = 2)");
+        parseAndConfirm("string contains sameElement(\"foo\")", "string contains sameElement(_ contains \"foo\")");
+    }
+
+    @Test
+    void testSameElementWithOrChild() {
+        // A single AND or OR child supplies the parenthesis of the sameElement itself
+        parseAndConfirm("f contains sameElement(a contains \"x\" OR b contains \"y\")");
+        parseAndConfirm("f contains sameElement(a contains \"x\" AND b contains \"y\")");
+
+        // With more than one child, every child must be serialized, also when the first is an AND or OR
+        parseAndConfirm("f contains sameElement((a contains \"x\" OR b contains \"y\"), c contains \"z\")");
+        parseAndConfirm("f contains sameElement((a contains \"x\" AND b contains \"y\"), c contains \"z\")");
+    }
+
+    @Test
+    void testSameElementWithUriChild() {
+        // A uri() child inside sameElement keeps the name of the subfield it applies to
+        parseAndConfirm("f contains sameElement(url contains uri(\"http://foo.com\"))");
+        parseAndConfirm("f contains sameElement(url contains uri(\"http://foo.com\"), name contains \"x\")");
+
+        // A uri() on the element value itself has no subfield name to write
+        parseAndConfirm("f contains sameElement(uri(\"http://foo.com\"))");
+    }
+
+    @Test
+    void testRangeAnnotations() {
+        // A leaf annotation without a bounds annotation must not leave a trailing comma in the annotation block
+        IntItem closed = new IntItem(new Limit(2, true), new Limit(5, true), "field");
+        closed.setLabel("foo");
+        assertEquals("({label: \"foo\"}range(field, 2, 5))", VespaSerializer.serialize(closed));
+
+        // That form parses back to an inclusive RangeItem, which has its own (also stable) canonical form
+        parseAndConfirm("{label: \"foo\"}range(field, 2, 5)", "({label: \"foo\"}range(field, 2, 5))");
+        parseAndConfirm("{label: \"foo\"}range(field, 2, 5)");
+
+        // A bounds annotation alone, and both annotations together, separated by a comma
+        IntItem leftOpen = new IntItem(new Limit(2, false), new Limit(5, true), "field");
+        assertEquals("({bounds: \"leftOpen\"}range(field, 2, 5))", VespaSerializer.serialize(leftOpen));
+
+        IntItem both = new IntItem(new Limit(2, false), new Limit(5, true), "field");
+        both.setLabel("foo");
+        assertEquals("({label: \"foo\", bounds: \"leftOpen\"}range(field, 2, 5))", VespaSerializer.serialize(both));
+        parseAndConfirm("({label: \"foo\", bounds: \"leftOpen\"}range(field, 2, 5))");
     }
 
     @Test
@@ -312,7 +493,7 @@ public class VespaSerializerTestCase {
 
     @Test
     void testAnnotatedWeakAnd() {
-        parseAndConfirm("({" + YqlParser.TARGET_NUM_HITS + ": 10}weakAnd(a contains \"A\", b contains \"B\"))");
+        parseAndConfirm("({" + YqlParser.TARGET_HITS + ": 10}weakAnd(a contains \"A\", b contains \"B\"))");
     }
 
     @Test
@@ -478,5 +659,39 @@ public class VespaSerializerTestCase {
         parseAndConfirm("field in (2, 3)");
         parseAndConfirm("field in (9000000000L, 12000000000L)");
         parseAndConfirm("string in (\"a\", \"b\")");
+    }
+
+    @Test
+    void testSerializeFrenchLanguageAnnotation() {
+        WordItem word = new WordItem("hello", "foo");
+        word.setLanguage(Language.FRENCH);
+        String serialized = VespaSerializer.serialize(word);
+        assertTrue(serialized.contains("language: \"fr\""),
+                "Serialized output should contain language annotation: " + serialized);
+    }
+
+    @Test
+    void testSerializeEnglishLanguageAnnotation() {
+        WordItem word = new WordItem("hello", "foo");
+        word.setLanguage(Language.ENGLISH);
+        String serialized = VespaSerializer.serialize(word);
+        assertTrue(serialized.contains("language: \"en\""),
+                "Serialized output should contain language annotation: " + serialized);
+    }
+
+    @Test
+    void testSerializeUnknownLanguageNoAnnotation() {
+        WordItem word = new WordItem("hello", "foo");
+        // Language is UNKNOWN by default
+        assertEquals(Language.UNKNOWN, word.getLanguage());
+        String serialized = VespaSerializer.serialize(word);
+        assertFalse(serialized.contains("language:"),
+                "Serialized output should NOT contain language annotation: " + serialized);
+    }
+
+    @Test
+    void testRoundTripLanguageAnnotation() {
+        // Parse YQL with language annotation, serialize, and check it round-trips
+        parseAndConfirm("foo contains ({language: \"fr\"}\"hello\")");
     }
 }

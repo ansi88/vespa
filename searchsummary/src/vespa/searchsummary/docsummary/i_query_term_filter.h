@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace search::docsummary {
 
@@ -10,12 +10,11 @@ namespace search::docsummary {
  * Interface class for checking if query term view indicates that
  * related query term is useful from the perspective of juniper.
  */
-class IQueryTermFilter
-{
+class IQueryTermFilter {
 public:
     virtual ~IQueryTermFilter() = default;
 
     virtual bool use_view(std::string_view view) const = 0;
 };
 
-}
+} // namespace search::docsummary

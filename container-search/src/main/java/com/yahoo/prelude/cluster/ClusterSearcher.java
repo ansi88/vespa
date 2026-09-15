@@ -1,6 +1,8 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.prelude.cluster;
 
+import ai.vespa.telemetry.api.trace.OtelTracing;
+import ai.vespa.telemetry.api.trace.TraceAttributes;
 import com.yahoo.collections.TinyIdentitySet;
 import com.yahoo.component.annotation.Inject;
 import com.yahoo.component.ComponentId;
@@ -8,6 +10,7 @@ import com.yahoo.component.chain.dependencies.After;
 import com.yahoo.component.provider.ComponentRegistry;
 import com.yahoo.container.core.documentapi.VespaDocumentAccess;
 import com.yahoo.container.handler.VipStatus;
+import com.yahoo.container.QrSearchersConfig;
 import com.yahoo.prelude.fastsearch.ClusterParams;
 import com.yahoo.prelude.fastsearch.DocumentdbInfoConfig;
 import com.yahoo.prelude.fastsearch.IndexedBackend;
@@ -18,11 +21,16 @@ import com.yahoo.search.Searcher;
 import com.yahoo.search.config.ClusterConfig;
 import com.yahoo.search.dispatch.Dispatcher;
 import com.yahoo.search.query.ParameterParser;
+import com.yahoo.search.query.Ranking;
+import com.yahoo.search.query.ranking.MatchPhase;
+import com.yahoo.search.query.ranking.SecondPhase;
 import com.yahoo.search.ranking.GlobalPhaseRanker;
 import com.yahoo.search.result.ErrorMessage;
 import com.yahoo.search.schema.Cluster;
+import com.yahoo.search.schema.Schema;
 import com.yahoo.search.schema.SchemaInfo;
 import com.yahoo.search.searchchain.Execution;
+import io.opentelemetry.api.trace.Span;
 import com.yahoo.vespa.streamingvisitors.StreamingBackend;
 import com.yahoo.yolean.Exceptions;
 
@@ -34,6 +42,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -41,6 +52,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.stream.Collectors;
+
 
 /**
  * A searcher which forwards to a cluster of monitored native Vespa backends.
@@ -73,6 +85,7 @@ public class ClusterSearcher extends Searcher {
                            ClusterConfig clusterConfig,
                            DocumentdbInfoConfig documentDbConfig,
                            SchemaInfo schemaInfo,
+                           QrSearchersConfig qrSearchersConfig,
                            ComponentRegistry<Dispatcher> dispatchers,
                            GlobalPhaseRanker globalPhaseRanker,
                            VipStatus vipStatus,
@@ -88,7 +101,7 @@ public class ClusterSearcher extends Searcher {
         maxQueryCacheTimeout = ParameterParser.asMilliSeconds(clusterConfig.maxQueryCacheTimeout(), DEFAULT_MAX_QUERY_CACHE_TIMEOUT);
 
         VespaBackend streaming = null, indexed = null;
-        ClusterParams clusterParams = makeClusterParams(searchClusterName, documentDbConfig, schemaInfo);
+        ClusterParams clusterParams = makeClusterParams(searchClusterName, documentDbConfig, schemaInfo, qrSearchersConfig);
         for (DocumentdbInfoConfig.Documentdb docDb : documentDbConfig.documentdb()) {
             if (docDb.mode() == DocumentdbInfoConfig.Documentdb.Mode.Enum.INDEX) {
                 if (indexed == null) {
@@ -105,16 +118,17 @@ public class ClusterSearcher extends Searcher {
         }
     }
 
-    private static ClusterParams makeClusterParams(String searchclusterName, DocumentdbInfoConfig documentDbConfig, SchemaInfo schemaInfo)
-    {
-        return new ClusterParams(searchclusterName + ".num" + 0, UUID.randomUUID().toString(),
-                                 null, documentDbConfig, schemaInfo);
+    private static ClusterParams makeClusterParams(String searchclusterName,
+                                                   DocumentdbInfoConfig documentDbConfig,
+                                                   SchemaInfo schemaInfo,
+                                                   QrSearchersConfig qrSearchersConfig) {
+        return new ClusterParams(searchclusterName, UUID.randomUUID().toString(),
+                                 null, documentDbConfig, schemaInfo, qrSearchersConfig);
     }
 
     private static IndexedBackend searchDispatch(ClusterParams clusterParams,
                                                  String searchClusterName,
-                                                 ComponentRegistry<Dispatcher> dispatchers)
-    {
+                                                 ComponentRegistry<Dispatcher> dispatchers) {
         ComponentId dispatcherComponentId = new ComponentId("dispatcher." + searchClusterName);
         Dispatcher dispatcher = dispatchers.getComponent(dispatcherComponentId);
         if (dispatcher == null)
@@ -124,8 +138,7 @@ public class ClusterSearcher extends Searcher {
 
     private static StreamingBackend streamingCluster(ClusterParams clusterParams,
                                                      ClusterConfig clusterConfig,
-                                                     VespaDocumentAccess access)
-    {
+                                                     VespaDocumentAccess access) {
         return new StreamingBackend(clusterParams, clusterConfig.configid(),
                                     access, clusterConfig.storageRoute());
     }
@@ -173,22 +186,36 @@ public class ClusterSearcher extends Searcher {
                     .collect(Collectors.toCollection(TinyIdentitySet::new))
                 : schema2Searcher.values().stream().collect(Collectors.toCollection(TinyIdentitySet::new));
 
-        if ( ! servers.isEmpty() ) {
-            for (var server : servers) {
-                if (query.getTimeLeft() > 0) {
-                    server.fill(result, summaryClass);
-                } else {
-                    if (result.hits().getErrorHit() == null) {
-                        result.hits().addError(ErrorMessage.createTimeout("No time left to get summaries, query timeout was " +
-                                query.getTimeout() + " ms"));
+        // The top of the fill side of the dispatch layer, and the counterpart of dispatch.search: this is the
+        // level at which "a fill happened against this content cluster" is true, and it is the span the
+        // per-invoker and per-node fill spans hang under. The error branches are covered deliberately - a fill
+        // that produced nothing but a timeout still took time, and is the case worth seeing in a trace.
+        OtelTracing.instrument("cluster.fill", () -> {
+            // Set before any work, so a fill that finds no backend in service is still attributable to a
+            // cluster and a summary class rather than being an anonymous failed span. No vespa.schema here:
+            // the restrict can hold several, and dispatch.fill below carries the precise one per partition.
+            Span.current()
+                .setAttribute(TraceAttributes.CONTENT_CLUSTER,    searchClusterName)
+                .setAttribute(TraceAttributes.FILL_SUMMARY_CLASS, summaryClass)
+                .setAttribute(TraceAttributes.FILL_BACKENDS,      servers.size());
+
+            if ( ! servers.isEmpty() ) {
+                for (var server : servers) {
+                    if (query.getTimeLeft() > 0) {
+                        server.fill(result, summaryClass);
+                    } else {
+                        if (result.hits().getErrorHit() == null) {
+                            result.hits().addError(ErrorMessage.createTimeout("No time left to get summaries, query timeout was " +
+                                                                              query.getTimeout() + " ms"));
+                        }
                     }
                 }
+            } else {
+                if (result.hits().getErrorHit() == null) {
+                    result.hits().addError(ErrorMessage.createNoBackendsInService("Could not fill result"));
+                }
             }
-        } else {
-            if (result.hits().getErrorHit() == null) {
-                result.hits().addError(ErrorMessage.createNoBackendsInService("Could not fill result"));
-            }
-        }
+        });
     }
 
     private void validateQueryTimeout(Query query) {
@@ -222,30 +249,95 @@ public class ClusterSearcher extends Searcher {
         }
     }
 
-    private Result perSchemaSearch(String schema, Query query) {
-        Set<String> restrict = query.getModel().getRestrict();
-        if (restrict.size() != 1) {
-            throw new IllegalStateException("perSchemaSearch must always be called with 1 schema, got: " + restrict.size());
+    // TODO: Make this a search chain
+    private Result perSchemaSearch(String schemaName, Query query) {
+        if (query.getModel().getRestrict().size() != 1) {
+            throw new IllegalStateException("perSchemaSearch must always be called with 1 schema, got: " +
+                                            query.getModel().getRestrict());
         }
-        int rerankCount = globalPhaseRanker != null ? globalPhaseRanker.getRerankCount(query, schema) : 0;
+
+        // Searcher 1
+        var schema = schemaInfo.newSession(query).schema(schemaName);
+        transferKeepRankCounts(query, schema);
+        transferRerankCounts(query, schema);
+        transferMatchPhaseMaxHits(query, schema);
+
+        // Searcher 2
+        int rerankCount = globalPhaseRanker != null ? globalPhaseRanker.getRerankCount(query, schemaName) : 0;
         boolean useGlobalPhase = rerankCount > 0;
         final int wantOffset = query.getOffset();
         final int wantHits = query.getHits();
         if (useGlobalPhase) {
-            var error = globalPhaseRanker.validateNoSorting(query, schema).orElse(null);
+            var error = globalPhaseRanker.validateNoSorting(query, schemaName).orElse(null);
             if (error != null) return new Result(query, error);
             int useHits = Math.max(wantOffset + wantHits, rerankCount);
             query.setOffset(0);
             query.setHits(useHits);
         }
-        Result result = schema2Searcher.get(schema).search(schema, query);
+        Result result = schema2Searcher.get(schemaName).search(schemaName, query);
         if (useGlobalPhase) {
-            globalPhaseRanker.rerankHits(query, result, schema);
+            if (query.getTrace().isTraceable(3)) {
+                query.trace("Use global-phase from [" + schema + "] to re-rank " + rerankCount + " hits", 3);
+            }
+            globalPhaseRanker.rerankHits(query, result, schemaName);
             result.hits().trim(wantOffset, wantHits);
             query.setOffset(wantOffset);
             query.setHits(wantHits);
         }
         return result;
+    }
+
+    // Transfer second-phase rerankCount/totalRerankCount
+    public static void transferRerankCounts(Query query, Optional<Schema> schema) {
+        OptionalInt rerankCount = asOptional(query.getRanking().getSecondPhase().getRerankCount());
+        OptionalInt totalRerankCount = asOptional(query.getRanking().getSecondPhase().getTotalRerankCount());
+        if (rerankCount.isEmpty() && totalRerankCount.isEmpty() && schema.isPresent()) { // fall back to rank profile defaults
+            var profile = schema.get().rankProfiles().get(query.getRanking().getProfile());
+            if (profile != null) {
+                rerankCount = profile.secondPhase().rerankCount();
+                totalRerankCount = profile.secondPhase().totalRerankCount();
+            }
+        }
+        rerankCount.ifPresent(count -> query.getRanking().getProperties().put(SecondPhase.rerankCountProperty, count));
+        totalRerankCount.ifPresent(count -> query.getRanking().getProperties().put(SecondPhase.totalRerankCountProperty, count));
+    }
+
+    // Transfer first-phase keepRankCount/totalKeepRankCount
+    public static void transferKeepRankCounts(Query query, Optional<Schema> schema) {
+        OptionalInt keepRankCount = asOptional(query.getRanking().getKeepRankCount());
+        OptionalInt totalKeepRankCount = asOptional(query.getRanking().getTotalKeepRankCount());
+        if (keepRankCount.isEmpty() && totalKeepRankCount.isEmpty() && schema.isPresent()) { // fall back to rank profile defaults
+            var profile = schema.get().rankProfiles().get(query.getRanking().getProfile());
+            if (profile != null) {
+                keepRankCount = profile.keepRankCount();
+                totalKeepRankCount = profile.totalKeepRankCount();
+            }
+        }
+        keepRankCount.ifPresent(count -> query.getRanking().getProperties().put(Ranking.keepRankCountProperty, count));
+        totalKeepRankCount.ifPresent(count -> query.getRanking().getProperties().put(Ranking.totalKeepRankCountProperty, count));
+    }
+
+    // Transfer first-phase keepRankCount/totalKeepRankCount
+    public static void transferMatchPhaseMaxHits(Query query, Optional<Schema> schema) {
+        OptionalLong maxHits = asOptional(query.getRanking().getMatchPhase().getMaxHits());
+        OptionalLong totalMaxHits = asOptional(query.getRanking().getMatchPhase().getTotalMaxHits());
+        if (maxHits.isEmpty() && totalMaxHits.isEmpty() && schema.isPresent()) { // fall back to rank profile defaults
+            var profile = schema.get().rankProfiles().get(query.getRanking().getProfile());
+            if (profile != null) {
+                maxHits = profile.matchPhase().maxHits();
+                totalMaxHits = profile.matchPhase().totalMaxHits();
+            }
+        }
+        maxHits.ifPresent(count -> query.getRanking().getProperties().put(MatchPhase.maxHitsProperty, count));
+        totalMaxHits.ifPresent(count -> query.getRanking().getProperties().put(MatchPhase.totalMaxHitsProperty, count));
+    }
+
+    private static OptionalInt asOptional(Integer nullable) {
+        return nullable == null ? OptionalInt.empty() : OptionalInt.of(nullable);
+    }
+
+    private static OptionalLong asOptional(Long nullable) {
+        return nullable == null ? OptionalLong.empty() : OptionalLong.of(nullable);
     }
 
     private static void processResult(Query query, FutureTask<Result> task, Result mergedResult) {
@@ -277,7 +369,10 @@ public class ClusterSearcher extends Searcher {
             for (var entry : schemaQueries.entrySet()) {
                 FutureTask<Result> task = new FutureTask<>(() -> perSchemaSearch(entry.getKey(), entry.getValue()));
                 try {
-                    executor.execute(task);
+                    // Carry the trace context onto the pool thread: the dispatch and per-node spans created
+                    // below perSchemaSearch would otherwise see no context and never be exported. The rejection
+                    // path below runs on this thread, where the context is already current, and needs nothing.
+                    executor.execute(OtelTracing.withCurrentContext(task));
                     pending.add(task);
                 } catch (RejectedExecutionException rej) {
                     task.run();

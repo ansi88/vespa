@@ -3,19 +3,19 @@
 #pragma once
 
 #include "geo_location.h"
-#include <string>
+
 #include <cstdint>
+#include <string>
 
 namespace search::common {
 
 /**
  * Immutable specification of a geo-location query item.
  **/
-struct GeoLocationSpec
-{
+struct GeoLocationSpec {
 public:
     const std::string field_name;
     const GeoLocation location;
 };
 
-} // namespace
+} // namespace search::common

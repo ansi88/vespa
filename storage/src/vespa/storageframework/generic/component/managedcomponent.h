@@ -12,10 +12,10 @@
  */
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace metrics {
-    class Metric;
+class Metric;
 }
 
 namespace storage::framework {
@@ -29,7 +29,7 @@ struct Clock;
 struct ManagedComponent {
     virtual ~ManagedComponent() = default;
 
-    [[nodiscard]] virtual const vespalib::string& getName() const = 0;
+    [[nodiscard]] virtual const std::string& getName() const = 0;
     virtual metrics::Metric* getMetric() = 0;
     virtual const StatusReporter* getStatusReporter() = 0;
 
@@ -38,7 +38,6 @@ struct ManagedComponent {
     virtual void setThreadPool(ThreadPool&) = 0;
     virtual void open() = 0;
     virtual void close() = 0;
-
 };
 
-}
+} // namespace storage::framework

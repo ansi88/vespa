@@ -2,11 +2,9 @@
 package com.yahoo.vespa.indexinglanguage.expressions;
 
 import com.yahoo.document.DataType;
-import com.yahoo.document.Document;
 import com.yahoo.document.Field;
 import com.yahoo.document.datatypes.LongFieldValue;
 import com.yahoo.document.datatypes.StringFieldValue;
-import com.yahoo.language.Linguistics;
 import com.yahoo.language.process.Embedder;
 import com.yahoo.language.simple.SimpleLinguistics;
 import com.yahoo.vespa.indexinglanguage.ExpressionSearcher;
@@ -14,6 +12,8 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import com.yahoo.vespa.indexinglanguage.parser.ParseException;
 import com.yahoo.yolean.Exceptions;
 import org.junit.Test;
+
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 
@@ -31,7 +31,7 @@ public class ChoiceTestCase {
             adapter.setValue("foo", new StringFieldValue("foo1"));
             ExecutionContext context = new ExecutionContext(adapter);
             choice.execute(context);
-            assertEquals("foo1", context.getValue().getWrappedValue());
+            assertEquals("foo1", context.getCurrentValue().getWrappedValue());
         }
 
         {   // bar only
@@ -39,17 +39,17 @@ public class ChoiceTestCase {
             adapter.setValue("bar", new StringFieldValue("bar1"));
             ExecutionContext context = new ExecutionContext(adapter);
             choice.execute(context);
-            assertEquals("bar1", context.getValue().getWrappedValue());
+            assertEquals("bar1", context.getCurrentValue().getWrappedValue());
         }
 
         {   // both foo and bar
             var adapter = new SimpleTestAdapter(new Field("foo", DataType.STRING), new Field("bar", DataType.STRING));
             adapter.setValue("foo", new StringFieldValue("foo1"));
             adapter.setValue("bar", new StringFieldValue("bar1"));
-            choice.verify(adapter);
+            choice.resolve(adapter);
             ExecutionContext context = new ExecutionContext(adapter);
             choice.execute(context);
-            assertEquals("foo1", context.getValue().getWrappedValue());
+            assertEquals("foo1", context.getCurrentValue().getWrappedValue());
         }
     }
 
@@ -59,19 +59,19 @@ public class ChoiceTestCase {
 
         { // value is set
             var adapter = new SimpleTestAdapter(new Field("timestamp", DataType.LONG));
-            choice.verify(adapter);
+            choice.resolve(adapter);
             adapter.setValue("timestamp", new LongFieldValue(34));
             ExecutionContext context = new ExecutionContext(adapter);
             choice.execute(context);
-            assertEquals(34L, context.getValue().getWrappedValue());
+            assertEquals(34L, context.getCurrentValue().getWrappedValue());
         }
 
         { // fallback to default
             var adapter = new SimpleTestAdapter(new Field("timestamp", DataType.LONG));
-            choice.verify(adapter);
+            choice.resolve(adapter);
             ExecutionContext context = new ExecutionContext(adapter);
             choice.execute(context);
-            assertEquals(99999999L, context.getValue().getWrappedValue());
+            assertEquals(99999999L, context.getCurrentValue().getWrappedValue());
         }
     }
 
@@ -92,7 +92,7 @@ public class ChoiceTestCase {
     }
 
     private static Expression parse(String s) throws ParseException {
-        return Expression.fromString(s, new SimpleLinguistics(), Embedder.throwsOnUse.asMap());
+        return Expression.fromString(s, new SimpleLinguistics(), Map.of(), Embedder.throwsOnUse.asMap(), Map.of());
     }
 
 }

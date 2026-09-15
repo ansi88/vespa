@@ -10,6 +10,7 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.GregorianCalendar;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.TimeZone;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -26,7 +27,7 @@ import java.util.logging.Logger;
  *
  * @author Bjorn Borud
  */
-public class ArchiverHandler extends AbstractLogHandler {
+public final class ArchiverHandler extends AbstractLogHandler {
     private static final Logger log = Logger.getLogger(ArchiverHandler.class.getName());
 
     /**
@@ -72,8 +73,8 @@ public class ArchiverHandler extends AbstractLogHandler {
      * Creates an ArchiverHandler
      */
     private ArchiverHandler() {
-        calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"));
-        dateformat = new SimpleDateFormat("yyyy/MM/dd/HH");
+        calendar = new GregorianCalendar(TimeZone.getTimeZone("UTC"), Locale.US);
+        dateformat = new SimpleDateFormat("yyyy/MM/dd/HH", Locale.US);
         dateformat.setTimeZone(TimeZone.getTimeZone("UTC"));
 
         setLogFilter(null);

@@ -1,10 +1,13 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.prelude.query;
 
+import ai.vespa.searchlib.searchprotocol.protobuf.SearchProtocol;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -12,7 +15,9 @@ import java.util.stream.Collectors;
 import com.yahoo.compress.IntegerCompressor;
 
 /**
- * A set of words with differing exactness scores to be used for literal boost ranking.
+ * A set of alternative tokens at the same position of the query. A document will match if it contains any of the
+ * alternatives. The exactness score can be used to denote the semantic closeness of the alternative relative
+ * to the most exact alternative.
  *
  * @author Steinar Knutsen
  */
@@ -32,14 +37,14 @@ public class WordAlternativesItem extends TermItem {
     private static List<Alternative> uniqueAlternatives(Collection<Alternative> terms) {
         List<Alternative> uniqueTerms = new ArrayList<>(terms.size());
         for (Alternative term : terms) {
-            int i = Collections.binarySearch(uniqueTerms, term, (t0, t1) -> t0.word.compareTo(t1.word));
+            int i = Collections.binarySearch(uniqueTerms, term, Comparator.comparing(a -> a.word));
             if (i >= 0) {
                 Alternative old = uniqueTerms.get(i);
                 if (old.exactness < term.exactness) {
                     uniqueTerms.set(i, term);
                 }
             } else {
-                uniqueTerms.add(~i, term);
+                uniqueTerms.add(-i - 1, term);
             }
         }
         return List.copyOf(uniqueTerms);
@@ -92,7 +97,7 @@ public class WordAlternativesItem extends TermItem {
 
     @Override
     public ItemType getItemType() {
-        return ItemType.WORD_ALTERNATIVES; // placeholder
+        return ItemType.WORD_ALTERNATIVES;
     }
 
     @Override
@@ -101,7 +106,7 @@ public class WordAlternativesItem extends TermItem {
     }
 
     /**
-     * Return an immutable snapshot of the contained terms. This list will not reflect later changes to the item.
+     * Return an immutable snapshot of the contained terms.
      *
      * @return an immutable list of word alternatives and their respective scores
      */
@@ -110,13 +115,13 @@ public class WordAlternativesItem extends TermItem {
     }
 
     @Override
-    public void encodeThis(ByteBuffer target) {
-        super.encodeThis(target);
+    public void encodeThis(ByteBuffer target, SerializationContext context) {
+        super.encodeThis(target, context);
         IntegerCompressor.putCompressedPositiveNumber(alternatives.size(), target);
         for (Alternative a : alternatives) {
             Item p = new PureWeightedString(a.word, (int) (getWeight() * a.exactness + 0.5));
             p.setFilter(isFilter());
-            p.encode(target);
+            p.encode(target, context);
         }
     }
 
@@ -139,10 +144,14 @@ public class WordAlternativesItem extends TermItem {
         setAlternatives(newTerms);
     }
 
+    public void add(Alternative alternative) {
+        addTerm(alternative.word, alternative.exactness);
+    }
+
     @Override
     public WordAlternativesItem clone() {
         var clone = (WordAlternativesItem)super.clone();
-        clone.alternatives = new ArrayList(this.alternatives);
+        clone.alternatives = new ArrayList<>(this.alternatives);
         return clone;
     }
 
@@ -157,17 +166,49 @@ public class WordAlternativesItem extends TermItem {
         return Objects.hash(super.hashCode(), alternatives);
     }
 
-    /** A word alternative. This is a value object. */
+    @Override
+    SearchProtocol.QueryTreeItem toProtobuf(SerializationContext context) {
+        var builder = SearchProtocol.ItemWordAlternatives.newBuilder();
+        builder.setProperties(ToProtobuf.buildTermProperties(this, getIndexName()));
+        for (Alternative alt : alternatives) {
+            var weightedString = SearchProtocol.PureWeightedString.newBuilder()
+                    .setWeight((int) (getWeight() * alt.exactness + 0.5))
+                    .setValue(alt.word)
+                    .build();
+            builder.addWeightedStrings(weightedString);
+        }
+        return SearchProtocol.QueryTreeItem.newBuilder()
+                .setItemWordAlternatives(builder.build())
+                .build();
+    }
+
+    /** A token alternative of this item. */
     public static final class Alternative {
 
         public final String word;
         public final double exactness;
 
+        /** Creates an alternative with exactness 1.0. */
+        public Alternative(String word) {
+            this(word, 1.0);
+        }
+
+        /**
+         * Creates an alternative with an exactness.
+         *
+         * @param word the word (token) constituting this alternative.
+         * @param exactness a number between 0 and 1, where 1 means this alternative is an exact representation
+         *        of the intended meaning, and 0 means it is unrelated. This can be used to provide to ranking
+         *        information about how semantically close to the most exact alternative an alternative is.
+         *        When this is not available, use 1.0 for all alternatives.
+         */
         public Alternative(String word, double exactness) {
-            super();
             this.word = word;
             this.exactness = exactness;
         }
+
+        public String word() { return word; }
+        public double exactness() { return exactness; }
 
         @Override
         public String toString() {

@@ -3,7 +3,10 @@ package com.yahoo.prelude.query;
 
 import java.lang.reflect.Modifier;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import com.yahoo.search.Query;
@@ -81,6 +84,51 @@ public class ItemLabelTestCase {
         // can live with this weakness for now, as the nodes we
         // typically need to label in the back-end are leaf-ish nodes.
         assertNull(query.getRanking().getProperties().get("vespa.label.missing.id"));
+    }
+
+    @Test
+    final void testLabelWrapperIsTaggedButNotTreatedAsALeaf() {
+        WordItem w1 = new WordItem("w1");
+        WordItem w2 = new WordItem("w2");
+        LabelWrapperItem wrapper = new LabelWrapperItem("my_label", 2.5);
+        AndItem and = new AndItem();
+        Query query = new Query();
+
+        w2.setLabel("below_wrapper");
+        wrapper.addItem(w2);
+        and.addItem(w1);
+        and.addItem(wrapper);
+        query.getModel().getQueryTree().setRoot(and);
+        query.prepare();
+
+        // The wrapper itself is taggable, so its label reaches the back-end
+        assertTrue(wrapper.getUniqueID() > 0);
+        assertEquals(String.valueOf(wrapper.getUniqueID()),
+                     query.getRanking().getProperties().get("vespa.label.my_label.id").get(0));
+
+        // ... and unlike other taggable items it is descended into, so its child is tagged as well
+        assertTrue(w2.getUniqueID() > 0);
+        assertEquals(String.valueOf(w2.getUniqueID()),
+                     query.getRanking().getProperties().get("vespa.label.below_wrapper.id").get(0));
+    }
+
+    @Test
+    final void testSharedLabelEncodesAllUniqueIds() {
+        WordItem w1 = new WordItem("w1");
+        WordItem w2 = new WordItem("w2");
+        AndItem and = new AndItem();
+        Query query = new Query();
+
+        w1.setLabel("shared");
+        w2.setLabel("shared");
+        and.addItem(w1);
+        and.addItem(w2);
+        query.getModel().getQueryTree().setRoot(and);
+        query.prepare();
+        var values = query.getRanking().getProperties().get("vespa.label.shared.id");
+        assertEquals(2, values.size());
+        assertEquals(String.valueOf(w1.getUniqueID()), values.get(0));
+        assertEquals(String.valueOf(w2.getUniqueID()), values.get(1));
     }
 
 }

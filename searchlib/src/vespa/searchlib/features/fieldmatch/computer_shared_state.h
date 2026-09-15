@@ -3,9 +3,12 @@
 
 #include "params.h"
 #include "simplemetrics.h"
+
 #include <vespa/searchlib/features/queryterm.h>
 
-namespace search::fef { class PhraseSplitterQueryEnv; }
+namespace search::fef {
+class PhraseSplitterQueryEnv;
+}
 
 namespace search::features::fieldmatch {
 
@@ -22,7 +25,7 @@ public:
      * @param fieldInfo         The info object of the matched field.
      * @param params            The parameter object for this computer.
      */
-    ComputerSharedState(const vespalib::string& propertyNamespace, const fef::PhraseSplitterQueryEnv& splitter_query_env,
+    ComputerSharedState(const std::string& propertyNamespace, const fef::PhraseSplitterQueryEnv& splitter_query_env,
                         const fef::FieldInfo& fieldInfo, const Params& params);
     ~ComputerSharedState();
 
@@ -35,18 +38,17 @@ public:
     const SimpleMetrics& get_simple_metrics() const { return _simple_metrics; }
 
 private:
-
     // per query
-    uint32_t                                   _field_id;
-    Params                                     _params;
-    bool                                       _use_cached_hits;
+    uint32_t _field_id;
+    Params   _params;
+    bool     _use_cached_hits;
 
-    QueryTermVector                            _query_terms;
-    uint32_t                                   _total_term_weight;
-    feature_t                                  _total_term_significance;
+    QueryTermVector _query_terms;
+    uint32_t        _total_term_weight;
+    feature_t       _total_term_significance;
 
     // portions per docid (not used here), portions per query
-    SimpleMetrics                              _simple_metrics;  // The metrics used to compute simple features.
+    SimpleMetrics _simple_metrics; // The metrics used to compute simple features.
 };
 
-}
+} // namespace search::features::fieldmatch

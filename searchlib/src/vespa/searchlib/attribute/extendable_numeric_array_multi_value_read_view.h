@@ -4,6 +4,8 @@
 
 #include <vespa/searchcommon/attribute/i_multi_value_read_view.h>
 
+#include <vector>
+
 namespace search::attribute {
 
 /**
@@ -14,15 +16,15 @@ namespace search::attribute {
  * @tparam BaseType The base type of the raw data to access.
  */
 template <typename MultiValueType, typename BaseType>
-class ExtendableNumericArrayMultiValueReadView : public attribute::IMultiValueReadView<MultiValueType>
-{
+class ExtendableNumericArrayMultiValueReadView : public attribute::IMultiValueReadView<MultiValueType> {
     const std::vector<BaseType>&        _data;
     const std::vector<uint32_t>&        _idx;
     mutable std::vector<MultiValueType> _copy;
+
 public:
     ExtendableNumericArrayMultiValueReadView(const std::vector<BaseType>& data, const std::vector<uint32_t>& idx);
     ~ExtendableNumericArrayMultiValueReadView() override;
-    vespalib::ConstArrayRef<MultiValueType> get_values(uint32_t doc_id) const override;
+    std::span<const MultiValueType> get_values(uint32_t doc_id) const override;
 };
 
-}
+} // namespace search::attribute

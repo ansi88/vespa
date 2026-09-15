@@ -12,13 +12,13 @@ import com.yahoo.messagebus.EmptyReply;
 import com.yahoo.messagebus.Error;
 import com.yahoo.messagebus.ErrorCode;
 import com.yahoo.messagebus.Message;
+import com.yahoo.messagebus.MetadataExtractor;
 import com.yahoo.messagebus.Protocol;
 import com.yahoo.messagebus.Reply;
 import com.yahoo.messagebus.ReplyHandler;
 import com.yahoo.messagebus.Routable;
 import com.yahoo.messagebus.Trace;
 import com.yahoo.messagebus.TraceLevel;
-import com.yahoo.messagebus.network.NetworkOwner;
 import com.yahoo.messagebus.routing.Hop;
 import com.yahoo.messagebus.routing.Route;
 import com.yahoo.messagebus.routing.RoutingNode;
@@ -46,7 +46,7 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
     protected RPCSend(RPCNetwork net) {
         this.net = net;
         String prefix = net.getIdentity().getServicePrefix();
-        if (prefix != null && prefix.length() > 0) {
+        if (prefix != null && !prefix.isEmpty()) {
             this.serverIdent = this.clientIdent = "'" + prefix + "'";
         }
         else {
@@ -122,20 +122,15 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
         if (!req.checkReturnTypes(getReturnSpec())) {
             // Map all known JRT errors to the appropriate message bus error.
             reply = new EmptyReply();
-            switch (req.errorCode()) {
-                case com.yahoo.jrt.ErrorCode.TIMEOUT:
-                    error = new Error(ErrorCode.TIMEOUT,
-                            "A timeout occurred while waiting for '" + serviceName + "' (" +
-                                    ctx.timeout + " seconds expired); " + req.errorMessage());
-                    break;
-                case com.yahoo.jrt.ErrorCode.CONNECTION:
-                    error = new Error(ErrorCode.CONNECTION_ERROR,
-                            "A connection error occurred for '" + serviceName + "'; " + req.errorMessage());
-                    break;
-                default:
-                    error = new Error(ErrorCode.NETWORK_ERROR,
-                            "A network error occurred for '" + serviceName + "'; " + req.errorMessage());
-            }
+            error = switch (req.errorCode()) {
+                case com.yahoo.jrt.ErrorCode.TIMEOUT -> new Error(ErrorCode.TIMEOUT,
+                        "A timeout occurred while waiting for '" + serviceName + "' (" +
+                                ctx.timeout + " seconds expired); " + req.errorMessage());
+                case com.yahoo.jrt.ErrorCode.CONNECTION -> new Error(ErrorCode.CONNECTION_ERROR,
+                        "A connection error occurred for '" + serviceName + "'; " + req.errorMessage());
+                default -> new Error(ErrorCode.NETWORK_ERROR,
+                        "A network error occurred for '" + serviceName + "'; " + req.errorMessage());
+            };
         } else {
             reply = createReply(req.returnValues(), serviceName, ctx.trace);
         }
@@ -150,7 +145,7 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
         ctx.recipient.handleReply(reply);
     }
 
-    protected final class Params {
+    protected static final class Params {
         Version version;
         String route;
         String session;
@@ -160,6 +155,7 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
         Utf8Array protocolName;
         byte [] payload;
         int traceLevel;
+        MetadataExtractor metadataExtractor;
     }
 
     @Override
@@ -195,7 +191,7 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
             return;
         }
         Message msg = (Message)routable;
-        if (p.route != null && p.route.length() > 0) {
+        if (p.route != null && !p.route.isEmpty()) {
             msg.setRoute(net.getRoute(p.route));
         }
         msg.setContext(new ReplyContext(request, p.version, protocol));
@@ -209,6 +205,7 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
             msg.getTrace().trace(TraceLevel.SEND_RECEIVE,
                     "Message (type " + msg.getType() + ") received at " + serverIdent + " for session '" + p.session + "'.");
         }
+        msg.extractMetadata(p.metadataExtractor); // TODO wrap in a try-catch just in case?
         net.getOwner().deliverMessage(msg, p.session);
     }
 
@@ -268,16 +265,5 @@ public abstract class RPCSend implements MethodHandler, ReplyHandler, RequestWai
         }
     }
 
-    private static class ReplyContext {
-
-        final Request request;
-        final Version version;
-        final Protocol protocol;
-
-        ReplyContext(Request request, Version version, Protocol protocol) {
-            this.request = request;
-            this.version = version;
-            this.protocol = protocol;
-        }
-    }
+    private record ReplyContext(Request request, Version version, Protocol protocol) { }
 }

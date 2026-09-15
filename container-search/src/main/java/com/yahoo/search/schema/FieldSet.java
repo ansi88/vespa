@@ -1,9 +1,7 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.schema;
 
-import com.yahoo.api.annotations.Beta;
-
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -12,7 +10,6 @@ import java.util.Set;
  *
  * @author bratseth
  */
-@Beta
 public class FieldSet implements FieldInfo {
 
     private final String name;
@@ -23,7 +20,7 @@ public class FieldSet implements FieldInfo {
 
     private FieldSet(Builder builder) {
         this.name = builder.name;
-        this.fieldNames = Set.copyOf(builder.fieldNames);
+        this.fieldNames = new LinkedHashSet<>(builder.fieldNames);
     }
 
     @Override
@@ -47,6 +44,11 @@ public class FieldSet implements FieldInfo {
     public boolean isIndex() {
         if (schema == null || fieldNames.isEmpty()) return false;
         return randomFieldInThis().isIndex();
+    }
+
+    @Override
+    public boolean hasFastMapSearch() {
+        return false;
     }
 
     void setSchema(Schema schema) {
@@ -82,7 +84,7 @@ public class FieldSet implements FieldInfo {
     public static class Builder {
 
         private final String name;
-        private final Set<String> fieldNames = new HashSet<>();
+        private final Set<String> fieldNames = new LinkedHashSet<>();
 
         public Builder(String name) {
             this.name = name;

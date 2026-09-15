@@ -28,6 +28,7 @@ import java.util.Optional;
  *
  * @author arnej
  */
+@SuppressWarnings("removal")
 @Before(GroupingExecutor.COMPONENT_NAME) // Must happen before query.prepare()
 public class ValidateNearestNeighborSearcher extends Searcher {
 
@@ -104,34 +105,39 @@ public class ValidateNearestNeighborSearcher extends Searcher {
         }
 
         private static boolean isTensorTypeThatSupportsHnswIndex(TensorType tt) {
-            List<TensorType.Dimension> dims = tt.dimensions();
-            if (dims.size() == 1) {
-                return dims.get(0).isIndexed();
-            }
-            if (dims.size() == 2) {
-                var dims0 = dims.get(0);
-                var dims1 = dims.get(1);
-                return ((dims0.isMapped() && dims1.isIndexed()) || (dims0.isIndexed() && dims1.isMapped()));
-            }
-            return false;
+            var indexedSubtype = tt.indexedSubtype();
+            return (indexedSubtype.rank() == 1 && indexedSubtype.hasOnlyIndexedBoundDimensions());
         }
 
         /** Returns an error message if this is invalid, or null if it is valid */
         private String validate(NearestNeighborItem item) {
-            if (item.getTargetNumHits() < 1)
-                return item + " has invalid targetHits " + item.getTargetNumHits() + ": Must be >= 1";
+            if (item.getTargetHits() != null && item.getTotalTargetHits() != null)
+                return item + " cannot have both targetHits and totalTargetHits set";
+
+            if (item.getTargetHits() == null && item.getTotalTargetHits() == null)
+                return item + " must have either targetHits or totalTargetHits set";
+
+            if (item.getTargetHits() != null && item.getTargetHits() < 1)
+                return item + " has invalid targetHits " + item.getTargetHits() + ": Must be >= 1";
+
+            if (item.getTotalTargetHits() != null && item.getTotalTargetHits() < 1)
+                return item + " has invalid totalTargetHits " + item.getTotalTargetHits() + ": Must be >= 1";
+
+            if (item.getTotalTargetHits() != null && item.getMinTargetHits() != null
+                && item.getTotalTargetHits() < item.getMinTargetHits())
+                return item + " has invalid parameters: minTargetHits cannot be larger than totalTargetHits";
 
             String queryFeatureName = "query(" + item.getQueryTensorName() + ")";
             Optional<Tensor> queryTensor = query.getRanking().getFeatures().getTensor(queryFeatureName);
             if (queryTensor.isEmpty())
                 return item + " requires a tensor rank feature named '" + queryFeatureName + "' but this is not present";
 
-            if (badQueryTensorType(queryTensor.get().type())) {
+            if (badQueryTensorType(queryTensor.get().type()))
                 return item + " tensor " + queryFeatureName + " must have exactly 1, indexed dimension, but was: " + queryTensor.get().type();
-            }
-            if ( ! validAttributes.containsKey(item.getIndexName())) {
+
+            if ( ! validAttributes.containsKey(item.getIndexName()))
                 return item + " field is not an attribute";
-            }
+
             List<TensorType> allTensorTypes = validAttributes.get(item.getIndexName());
             for (TensorType fieldType : allTensorTypes) {
                 if (isTensorTypeThatSupportsHnswIndex(fieldType) && isCompatible(fieldType, queryTensor.get().type())) {
@@ -150,9 +156,6 @@ public class ValidateNearestNeighborSearcher extends Searcher {
             }
             return item + " field is not a tensor";
         }
-
-        @Override
-        public void onExit() {}
 
     }
 

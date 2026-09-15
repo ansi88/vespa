@@ -12,9 +12,8 @@ import com.yahoo.vespa.config.server.session.LocalSession;
 import com.yahoo.vespa.config.server.session.PrepareParams;
 import com.yahoo.vespa.config.server.session.SessionRepository;
 import com.yahoo.vespa.config.server.session.SessionZooKeeperClient;
+import com.yahoo.vespa.flags.FlagSource;
 import com.yahoo.vespa.flags.InMemoryFlagSource;
-import com.yahoo.vespa.flags.PermanentFlags;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -24,19 +23,26 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
+import static com.yahoo.vespa.config.server.session.Session.Status.DELETE;
 import static com.yahoo.vespa.config.server.session.Session.Status.PREPARE;
 import static com.yahoo.vespa.config.server.session.Session.Status.UNKNOWN;
+import static com.yahoo.yolean.Exceptions.uncheck;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+// Note: Some test depend on sessionLifetime being 60 (set in config server config in MaintainerTester)
 public class SessionsMaintainerTest {
 
-    private final static File testApp = new File("src/test/apps/hosted");
+    private static final File testApp = new File("src/test/apps/hosted");
     private static final ApplicationId applicationId = ApplicationId.from("deploytester", "myApp", "default");
+
     private final ManualClock clock = new ManualClock();
+    private final InMemoryFlagSource flagSource = new InMemoryFlagSource();
     private MaintainerTester tester;
     private ApplicationRepository applicationRepository;
     private SessionsMaintainer maintainer;
@@ -46,24 +52,9 @@ public class SessionsMaintainerTest {
     @Rule
     public TemporaryFolder temporaryFolder = new TemporaryFolder();
 
-    @Before
-    public void setup() throws IOException {
-        var flagSource = new InMemoryFlagSource();
-        long sessionLifeTime = 60;
-        flagSource.withLongFlag(PermanentFlags.CONFIG_SERVER_SESSION_EXPIRY_TIME.id(), sessionLifeTime * 2);
-
-        tester = new MaintainerTester(clock, temporaryFolder, flagSource);
-        applicationRepository = tester.applicationRepository();
-        applicationRepository.tenantRepository().addTenant(applicationId.tenant());
-        maintainer = new SessionsMaintainer(applicationRepository, tester.curator(), Duration.ofMinutes(1));
-        sessionRepository = applicationRepository.getTenant(applicationId).getSessionRepository();
-
-        var serverdb = new File(applicationRepository.configserverConfig().configServerDBDir());
-        tenantFileSystemDirs = new TenantFileSystemDirs(serverdb, applicationId.tenant());
-    }
-
     @Test
     public void testDeletion() {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         clock.advance(Duration.ofSeconds(10));
@@ -100,6 +91,7 @@ public class SessionsMaintainerTest {
 
     @Test
     public void testDeletionOfSessionWithNoData() throws IOException {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         // Deploy, but do not activate
@@ -124,6 +116,7 @@ public class SessionsMaintainerTest {
 
     @Test
     public void testDeletionOfSessionWithUnknownStatus() {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         // Deploy, but do not activate
@@ -134,7 +127,7 @@ public class SessionsMaintainerTest {
         // Create a session, set status to UNKNOWN, we don't want to expire those
         // (creation time is then EPOCH, so will be candidate for expiry)
         var sessionId = 5;
-        var session = sessionRepository.createRemoteSession(sessionId);
+        var session = sessionRepository.createRemoteSessionAndActivate(sessionId);
         sessionRepository.createSessionZooKeeperClient(sessionId).createNewSession(clock.instant());
         try (var t = sessionRepository.createSetStatusTransaction(session, UNKNOWN)) {
             t.commit();
@@ -155,9 +148,9 @@ public class SessionsMaintainerTest {
         assertNumberOfLocalSessions(1);
     }
 
-
     @Test
     public void testDeletingInactiveSessions3() throws IOException {
+        tester = createTester();
         tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
 
         clock.advance(Duration.ofMinutes(10));
@@ -171,7 +164,7 @@ public class SessionsMaintainerTest {
         // Create a local session with invalid application package and check that expiring local sessions still works
         long sessionId = 4;
         var applicationPath = tenantFileSystemDirs.getUserApplicationDir(sessionId).toPath();
-        var session = sessionRepository.createRemoteSession(sessionId);
+        var session = sessionRepository.createRemoteSessionAndActivate(sessionId);
         sessionRepository.createSessionZooKeeperClient(sessionId).createNewSession(clock.instant());
         try (var t = sessionRepository.createSetStatusTransaction(session, PREPARE)) {
             t.commit();
@@ -189,13 +182,78 @@ public class SessionsMaintainerTest {
         assertFalse(applicationPath.toFile().exists()); // App has been deleted
     }
 
+    @Test
+    public void testDeletionOfOldestFirst() {
+        // Delete max 1 session
+        tester = createTester(new InMemoryFlagSource(), 1);
+
+        // Deploy some sessions when time goes backwards, to be able to have another
+        // order of sessions than increasing with time. 3 is the oldest session, 4 is active,
+        // so 2 should be deleted when maintainer runs
+        tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
+        clock.retreat(Duration.ofMinutes(10));
+        tester.deployApp(testApp, prepareParams()); // session 3
+        clock.retreat(Duration.ofMinutes(10));
+        tester.deployApp(testApp, prepareParams()); // session 4
+
+        clock.advance(Duration.ofMinutes(60));
+        maintainer.run();
+
+        var sessions = sessionRepository.getRemoteSessionsFromZooKeeper();
+        assertEquals(2, sessions.size());
+        assertEquals(List.of(3L, 4L), sessions);
+    }
+
+    @Test
+    public void testDeletingSessionWithStatusDelete() {
+        tester = createTester(flagSource);
+        tester.deployApp(testApp, prepareParams()); // session 2 (numbering starts at 2)
+
+        clock.advance(Duration.ofMinutes(10));
+        createDeployment().activate(); // session 3
+        assertNumberOfRemoteSessions(2);
+        assertNumberOfLocalSessions(2);
+
+        sessionRepository.createSetStatusTransaction(sessionRepository.getRemoteSession(2), DELETE);
+        sessionRepository.remoteSessionCache().remove(2L);
+
+        clock.advance(Duration.ofMinutes(60));
+        maintainer.run();
+        assertNumberOfRemoteSessions(1);
+        assertNumberOfLocalSessions(1);
+    }
+
+    private MaintainerTester createTester() {
+        return createTester(flagSource);
+    }
+
+    private MaintainerTester createTester(FlagSource flagSource) {
+        return createTester(flagSource, 50);
+    }
+
+    private MaintainerTester createTester(FlagSource flagSource, int maxSessionsToDelete) {
+        var tester = uncheck(() -> new MaintainerTester(clock, temporaryFolder, flagSource));
+        return setup(tester, maxSessionsToDelete);
+    }
+
+    private MaintainerTester setup(MaintainerTester tester, int maxSessionsToDelete) {
+        applicationRepository = tester.applicationRepository();
+        applicationRepository.tenantRepository().addTenant(applicationId.tenant());
+        maintainer = new SessionsMaintainer(applicationRepository, tester.curator(), Duration.ofMinutes(1), maxSessionsToDelete);
+        sessionRepository = applicationRepository.getTenant(applicationId).getSessionRepository();
+
+        var serverdb = new File(applicationRepository.configserverConfig().configServerDBDir());
+        tenantFileSystemDirs = new TenantFileSystemDirs(serverdb, applicationId.tenant());
+        return tester;
+    }
+
     private void createLocalSession(TenantName tenantName, int sessionId) {
         var sessionZooKeeperClient =
                 new SessionZooKeeperClient(applicationRepository.tenantRepository().getCurator(), tenantName,
                                            sessionId, applicationRepository.configserverConfig());
         var localSession = new LocalSession(tenantName,
                                             sessionId,
-                                            FilesApplicationPackage.fromFile(testApp),
+                                            FilesApplicationPackage.fromDir(testApp, Map.of()),
                                             sessionZooKeeperClient);
         sessionRepository.addLocalSession(localSession);
     }

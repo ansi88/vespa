@@ -9,29 +9,25 @@ import com.yahoo.document.datatypes.DoubleFieldValue;
  */
 public final class ToDoubleExpression extends Expression {
 
-    public ToDoubleExpression() {
-        super(UnresolvedDataType.INSTANCE);
-    }
-
     @Override
-    protected void doExecute(ExecutionContext context) {
-        context.setValue(new DoubleFieldValue(Double.valueOf(String.valueOf(context.getValue()))));
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
+    public DataType setInputType(DataType input, TypeContext context) {
+        super.setInputType(input, context);
         return DataType.DOUBLE;
     }
 
     @Override
-    public String toString() {
-        return "to_double";
+    public DataType setOutputType(DataType output, TypeContext context) {
+        super.setOutputType(DataType.DOUBLE, output, null, context);
+        return getInputType(context);
     }
+
+    @Override
+    protected void doExecute(ExecutionContext context) {
+        context.setCurrentValue(new DoubleFieldValue(Double.valueOf(String.valueOf(context.getCurrentValue()))));
+    }
+
+    @Override
+    public String toString() { return "to_double"; }
 
     @Override
     public boolean equals(Object obj) {

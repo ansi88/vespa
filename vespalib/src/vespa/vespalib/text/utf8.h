@@ -3,15 +3,15 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <cstdint>
+#include <string>
 
 namespace vespalib {
 
 /**
  * @brief Common utilities for reading and writing UTF-8 data
  **/
-class Utf8
-{
+class Utf8 {
 public:
     enum {
         /// random invalid codepoint
@@ -28,23 +28,19 @@ public:
     };
 
     /**
-     * Filter a string (std::string or vespalib::string)
+     * Filter a string (std::string or std::string)
      * and replace any invalid UTF8 sequences with the
      * standard replacement char U+FFFD; note that any
      * UTF-8 encoded surrogates are also considered invalid.
      **/
-    template <typename T>
-    static T filter_invalid_sequences(const T& input) noexcept;
+    template <typename T> static T filter_invalid_sequences(const T& input) noexcept;
 
     /**
      * check if a byte is valid as the first byte of an UTF-8 character.
      * @param c the byte to be checked
      * @return true if a valid UTF-8 character can start with this byte
      **/
-    static bool validFirstByte(unsigned char c) noexcept {
-        return (c < 0x80 ||
-                (c > 0xC1 && c < 0xF5));
-    }
+    static bool validFirstByte(unsigned char c) noexcept { return (c < 0x80 || (c > 0xC1 && c < 0xF5)); }
 
     /**
      * return the number of continuation bytes needed to complete
@@ -53,9 +49,12 @@ public:
      * @return 0, 1, 2, or 3
      **/
     static int numContBytes(unsigned char c) noexcept {
-        if (c < 0x80) return 0;
-        if (c > 0xC1 && c < 0xE0) return 1;
-        if (c > 0xDF && c < 0xF0) return 2;
+        if (c < 0x80)
+            return 0;
+        if (c > 0xC1 && c < 0xE0)
+            return 1;
+        if (c > 0xDF && c < 0xF0)
+            return 2;
         return 3;
     }
 
@@ -64,10 +63,7 @@ public:
      * @param c the byte to be checked
      * @return true if a valid UTF-8 character can contain this byte
      **/
-    static bool validContByte(unsigned char c) noexcept {
-        return (c > 0x7F && c < 0xC0);
-    }
-
+    static bool validContByte(unsigned char c) noexcept { return (c > 0x7F && c < 0xC0); }
 
     /**
      * decode a 2-byte UTF-8 character.  NOTE: assumes that checks
@@ -81,14 +77,12 @@ public:
      * @param contbyte second byte in this UTF-8 character
      * @return decoded UCS-4 codepoint in range [0, 0x7FF]
      **/
-    static uint32_t decode2(unsigned char firstbyte, unsigned char contbyte) noexcept
-    {
+    static uint32_t decode2(unsigned char firstbyte, unsigned char contbyte) noexcept {
         uint32_t r = (firstbyte & low_5bits_mask);
         r <<= 6;
         r |= (contbyte & low_6bits_mask);
         return r;
     }
-
 
     /**
      * decode a 3-byte UTF-8 character.  NOTE: assumes that checks
@@ -104,10 +98,7 @@ public:
      * @param contbyte2 third byte in this UTF-8 character
      * @return decoded UCS-4 codepoint in range [0, 0xFFFF]
      **/
-    static uint32_t decode3(unsigned char firstbyte,
-                            unsigned char contbyte1,
-                            unsigned char contbyte2) noexcept
-    {
+    static uint32_t decode3(unsigned char firstbyte, unsigned char contbyte1, unsigned char contbyte2) noexcept {
         uint32_t r = (firstbyte & low_4bits_mask);
         r <<= 6;
         r |= (contbyte1 & low_6bits_mask);
@@ -115,7 +106,6 @@ public:
         r |= (contbyte2 & low_6bits_mask);
         return r;
     }
-
 
     /**
      * decode a 4-byte UTF-8 character.  NOTE: assumes that checks
@@ -133,11 +123,8 @@ public:
      * @param contbyte3 fourth byte in this UTF-8 character
      * @return decoded UCS-4 codepoint in range [0, 0x1FFFFF]
      **/
-    static uint32_t decode4(unsigned char firstbyte,
-                            unsigned char contbyte1,
-                            unsigned char contbyte2,
-                            unsigned char contbyte3) noexcept
-    {
+    static uint32_t decode4(unsigned char firstbyte, unsigned char contbyte1, unsigned char contbyte2,
+                            unsigned char contbyte3) noexcept {
         uint32_t r = (firstbyte & low_3bits_mask);
         r <<= 6;
         r |= (contbyte1 & low_6bits_mask);
@@ -149,8 +136,7 @@ public:
     }
 
 protected:
-
-    [[noreturn]] static void throwX(const char *msg, unsigned int number);
+    [[noreturn]] static void throwX(const char* msg, unsigned int number);
 
     enum {
         low_7bits_mask = 0x7F,
@@ -165,35 +151,28 @@ protected:
     };
 };
 
-
 /**
  * @brief Reader class that wraps a block of data to get UTF-8 characters from
  **/
-class Utf8Reader
-    : public Utf8, private std::string_view
-{
+class Utf8Reader : public Utf8, private std::string_view {
 private:
     size_type _pos;
 
     uint32_t getComplexChar(unsigned char firstbyte, uint32_t fallback) noexcept;
-public:
 
+public:
     /**
      * Construct a reader for the given block of data
      * @param input data to read UTF-8 from (can be read-only)
      **/
-    Utf8Reader(std::string_view input) noexcept
-        : std::string_view(input), _pos(0)
-    {}
+    Utf8Reader(std::string_view input) noexcept : std::string_view(input), _pos(0) {}
 
     /**
      * Construct a reader for the given block of data
      * @param start pointer to the start of the block
      * @param sz size of the block in bytes
      **/
-    Utf8Reader(const char *start, size_t sz) noexcept
-        : std::string_view(start, sz), _pos(0)
-    {}
+    Utf8Reader(const char* start, size_t sz) noexcept : std::string_view(start, sz), _pos(0) {}
 
     /**
      * check if the buffer has more data.
@@ -239,20 +218,17 @@ public:
     size_type getPos() const noexcept { return _pos; }
 };
 
-
 /**
  * @brief Reader class that wraps a zero-terminated string it gets UTF-8 characters from
  *
  * If at all possible, rewrite your code to use Utf8Reader instead.
  **/
-class Utf8ReaderForZTS
-    : public Utf8
-{
+class Utf8ReaderForZTS : public Utf8 {
 private:
-    const char * &_p;
+    const char*& _p;
     uint32_t getComplexChar(unsigned char firstbyte, uint32_t fallback) noexcept;
-public:
 
+public:
     /**
      * Construct a reader for the given block of data.
      *
@@ -263,17 +239,13 @@ public:
      *
      * @param start pointer to the start of the block
      **/
-    Utf8ReaderForZTS(const char * &start) noexcept
-        : _p(start)
-    {}
+    Utf8ReaderForZTS(const char*& start) noexcept : _p(start) {}
 
     /**
      * check if the buffer has more data.
      * @return true if there is more data
      **/
-    bool hasMore() const noexcept {
-        return (*_p) != '\0';
-    }
+    bool hasMore() const noexcept { return (*_p) != '\0'; }
 
     /**
      * Decode the UTF-8 character at the current position.
@@ -312,9 +284,9 @@ public:
      * "strlen" does not count the zero termination, but bytes
      * that aren't valid UTF-8 will count as one character each.
      **/
-    static size_t countChars(const char *p) noexcept {
+    static size_t countChars(const char* p) noexcept {
         Utf8ReaderForZTS reader(p);
-        size_t i;
+        size_t           i;
         for (i = 0; reader.hasMore(); ++i) {
             reader.getChar();
         }
@@ -324,22 +296,20 @@ public:
     const char* get_current_ptr() const noexcept { return _p; }
 };
 
-
 /**
  * @brief Writer class that appends UTF-8 characters to a string
  **/
-template <typename Target>
-class Utf8Writer : public Utf8
-{
-    Target &_target;
+template <typename Target> class Utf8Writer : public Utf8 {
+    Target& _target;
+
 public:
     /**
      * construct a writer appending to the given string
-     * @param target a reference to a vespalib::string
+     * @param target a reference to a std::string
      * that the writer will append to.  Must be writable
      * and must be kept alive while the writer is active.
      **/
-    Utf8Writer(Target &target) noexcept : _target(target) {}
+    Utf8Writer(Target& target) noexcept : _target(target) {}
 
     /**
      * append the given character to the target string.
@@ -348,6 +318,4 @@ public:
     Utf8Writer& putChar(uint32_t codepoint);
 };
 
-
-}  // namespace vespalib
-
+} // namespace vespalib

@@ -2,10 +2,11 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <vespa/vespalib/data/slime/inserter.h>
-#include <vector>
+
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace vespalib {
 
@@ -13,8 +14,8 @@ namespace vespalib {
  * Interface used to traverse and expose state of a given component and its children.
  */
 struct StateExplorer {
-    virtual void get_state(const slime::Inserter &inserter, bool full) const = 0;
-    virtual std::vector<vespalib::string> get_children_names() const;
+    virtual void get_state(const slime::Inserter& inserter, bool full) const = 0;
+    virtual std::vector<std::string> get_children_names() const;
     virtual std::unique_ptr<StateExplorer> get_child(std::string_view name) const;
     virtual ~StateExplorer();
 };

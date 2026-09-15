@@ -4,6 +4,7 @@ vespa_add_executable(searchlib_query_visitor_test_app TEST
     query_visitor_test.cpp
     DEPENDS
     vespa_searchlib
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_query_visitor_test_app COMMAND searchlib_query_visitor_test_app)
 vespa_add_executable(searchlib_customtypevisitor_test_app TEST
@@ -11,6 +12,7 @@ vespa_add_executable(searchlib_customtypevisitor_test_app TEST
     customtypevisitor_test.cpp
     DEPENDS
     vespa_searchlib
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_customtypevisitor_test_app COMMAND searchlib_customtypevisitor_test_app)
 vespa_add_executable(searchlib_templatetermvisitor_test_app TEST
@@ -26,6 +28,7 @@ vespa_add_executable(searchlib_querybuilder_test_app TEST
     querybuilder_test.cpp
     DEPENDS
     vespa_searchlib
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_querybuilder_test_app COMMAND searchlib_querybuilder_test_app)
 vespa_add_executable(searchlib_stackdumpquerycreator_test_app TEST
@@ -33,8 +36,17 @@ vespa_add_executable(searchlib_stackdumpquerycreator_test_app TEST
     stackdumpquerycreator_test.cpp
     DEPENDS
     vespa_searchlib
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_stackdumpquerycreator_test_app COMMAND searchlib_stackdumpquerycreator_test_app)
+vespa_add_executable(searchlib_stackdumpiterator_test_app TEST
+    SOURCES
+    stackdumpiterator_test.cpp
+    DEPENDS
+    vespa_searchlib
+    GTest::gtest
+)
+vespa_add_test(NAME searchlib_stackdumpiterator_test_app COMMAND searchlib_stackdumpiterator_test_app)
 vespa_add_executable(searchlib_streaming_query_test_app TEST
     SOURCES
     streaming_query_test.cpp
@@ -48,5 +60,6 @@ vespa_add_executable(searchlib_streaming_query_large_test_app TEST
     streaming_query_large_test.cpp
     DEPENDS
     vespa_searchlib
+    GTest::gtest
 )
 vespa_add_test(NAME searchlib_streaming_query_large_test_app COMMAND searchlib_streaming_query_large_test_app)

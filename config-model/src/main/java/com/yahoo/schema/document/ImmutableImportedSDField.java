@@ -47,6 +47,11 @@ public class ImmutableImportedSDField implements ImmutableSDField {
     }
 
     @Override
+    public boolean doesBitPacking() {
+        return importedField.targetField().doesBitPacking();
+    }
+
+    @Override
     public boolean doesLowerCasing() {
         return importedField.targetField().doesLowerCasing();
     }
@@ -149,6 +154,18 @@ public class ImmutableImportedSDField implements ImmutableSDField {
     }
 
     @Override
+    public String getIndexLinguisticsProfile() { return importedField.targetField().getIndexLinguisticsProfile(); }
+
+    @Override
+    public String getSearchLinguisticsProfile() { return importedField.targetField().getSearchLinguisticsProfile(); }
+
+    @Override
+    public TokensMode getIndexLinguisticsTokens() { return importedField.targetField().getIndexLinguisticsTokens(); }
+
+    @Override
+    public TokensMode getSearchLinguisticsTokens() { return importedField.targetField().getSearchLinguisticsTokens(); }
+
+    @Override
     public ImmutableSDField getStructField(String name) {
         throw createUnsupportedException("struct");
     }
@@ -165,6 +182,25 @@ public class ImmutableImportedSDField implements ImmutableSDField {
 
     @Override
     public Stemming getStemming(Schema schema) {
+        throw createUnsupportedException("stemming");
+    }
+
+    // The tokens getters above delegate to the target field, as callers read them before deciding
+    // whether a field is imported. Resolving what they mean for stemming is not supported, as for
+    // getStemming(Schema): imported fields are attributes, which are never stemmed.
+
+    @Override
+    public Stemming getIndexStemming(Schema schema) {
+        throw createUnsupportedException("stemming");
+    }
+
+    @Override
+    public Stemming getSearchStemming(Schema schema) {
+        throw createUnsupportedException("stemming");
+    }
+
+    @Override
+    public Stemming getEffectiveSearchStemming(Schema schema) {
         throw createUnsupportedException("stemming");
     }
 
@@ -226,6 +262,11 @@ public class ImmutableImportedSDField implements ImmutableSDField {
     @Override
     public boolean hasFullIndexingDocprocRights() {
         return importedField.targetField().hasFullIndexingDocprocRights();
+    }
+
+    @Override
+    public boolean hasFastMapSearch() {
+        return importedField.targetField().hasFastMapSearch();
     }
 
 }

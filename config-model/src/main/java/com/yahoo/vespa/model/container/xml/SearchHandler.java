@@ -31,38 +31,44 @@ class SearchHandler extends ProcessingHandler<SearchChains> {
 
     static final BundleInstantiationSpecification HANDLER_SPEC = fromSearchAndDocproc(HANDLER_CLASSNAME);
     static final BindingPattern DEFAULT_BINDING = SystemBindingPattern.fromHttpPath("/search/*");
+    static final BindingPattern DEFAULT_BINDING_NO_SLASH = SystemBindingPattern.fromHttpPath("/search");
 
     SearchHandler(DeployState ds,
                   ApplicationContainerCluster cluster,
                   List<BindingPattern> bindings,
-                  Element threadpoolOptions) {
-        super(cluster.getSearchChains(), HANDLER_SPEC, new Threadpool(ds, threadpoolOptions));
+                  Element searchElement) {
+        super(cluster.getSearchChains(), HANDLER_SPEC, new Threadpool(ds, searchElement));
         bindings.forEach(this::addServerBindings);
     }
 
     static List<BindingPattern> bindingPattern(Collection<Integer> ports) {
-        if (ports.isEmpty()) return List.of(DEFAULT_BINDING);
+        if (ports.isEmpty()) return defaultBindings();
         return ports.stream()
-                .map(s -> (BindingPattern)SystemBindingPattern.fromHttpPortAndPath(s, DEFAULT_BINDING.path()))
-                .toList();
+                    .map(s -> List.of(SystemBindingPattern.fromHttpPortAndPath(s, DEFAULT_BINDING.path()),
+                                      (BindingPattern) SystemBindingPattern.fromHttpPortAndPath(s, DEFAULT_BINDING_NO_SLASH.path())))
+                    .flatMap(List::stream)
+                    .toList();
     }
 
+    static List<BindingPattern> defaultBindings() {
+        return List.of(SearchHandler.DEFAULT_BINDING, SearchHandler.DEFAULT_BINDING_NO_SLASH);
+    }
+
+    /** The thread pool instance used by search handlers. */
     private static class Threadpool extends ContainerThreadpool {
 
-        private final int threads;
-
-        Threadpool(DeployState ds, Element options) {
-            super(ds, "search-handler", options);
-            threads = ds.featureFlags().searchHandlerThreadpool();
+        Threadpool(DeployState ds, Element searchElement) {
+            super(ds, "search-handler", searchElement);
         }
 
         @Override
         public void setDefaultConfigValues(ContainerThreadpoolConfig.Builder builder) {
+            // TODO: Resolve parameters in the config model, not by modifying the config output.
             builder.maxThreadExecutionTimeSeconds(190)
                     .keepAliveTime(5.0)
-                    .maxThreads(-threads)
-                    .minThreads(-threads)
-                    .queueSize(-40);
+                    .relativeMaxThreads(10)
+                    .relativeMinThreads(10)
+                    .relativeQueueSize(40);
         }
 
     }

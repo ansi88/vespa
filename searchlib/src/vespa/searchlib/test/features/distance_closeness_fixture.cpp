@@ -1,6 +1,7 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "distance_closeness_fixture.h"
+
 #include <vespa/eval/eval/simple_value.h>
 #include <vespa/eval/eval/value.h>
 #include <vespa/eval/eval/value_codec.h>
@@ -9,6 +10,7 @@
 #include <vespa/searchlib/tensor/dense_tensor_attribute.h>
 #include <vespa/searchlib/tensor/direct_tensor_attribute.h>
 #include <vespa/searchlib/tensor/serialized_fast_value_attribute.h>
+#include <vespa/searchlib/test/test_quantization_params.h>
 #include <vespa/vespalib/objects/nbostream.h>
 
 using search::attribute::BasicType;
@@ -30,15 +32,16 @@ namespace search::features::test {
 
 namespace {
 
-std::shared_ptr<TensorAttribute>
-create_tensor_attribute(const vespalib::string& attr_name,
-                        const vespalib::string& tensor_type,
-                        DistanceMetric distance_metric,
-                        bool direct_tensor,
-                        uint32_t docid_limit)
-{
+std::shared_ptr<TensorAttribute> create_tensor_attribute(const std::string& attr_name, const std::string& tensor_type,
+                                                         DistanceMetric distance_metric, bool direct_tensor,
+                                                         bool quantized_tensor, uint32_t docid_limit) {
     Config cfg(BasicType::TENSOR, CollectionType::SINGLE);
-    cfg.setTensorType(ValueType::from_spec(tensor_type));
+    if (!quantized_tensor) {
+        cfg.setTensorType(ValueType::from_spec(tensor_type));
+    } else {
+        cfg.set_tensor_type_with_quantization(ValueType::from_spec(tensor_type),
+                                              ::search::test::mse_4bit_quantization_params());
+    }
     cfg.set_distance_metric(distance_metric);
     std::shared_ptr<TensorAttribute> result;
     if (cfg.tensorType().is_dense()) {
@@ -49,37 +52,37 @@ create_tensor_attribute(const vespalib::string& attr_name,
         result = std::make_shared<SerializedFastValueAttribute>(attr_name, cfg);
     }
     result->addReservedDoc();
-    result->addDocs(docid_limit-1);
+    result->addDocs(docid_limit - 1);
     result->commit();
     return result;
 }
 
-}
+} // namespace
 
 FeatureDumpFixture::~FeatureDumpFixture() = default;
 
-DistanceClosenessFixture::DistanceClosenessFixture(size_t fooCnt, size_t barCnt,
-                                                   const Labels& labels,
-                                                   const vespalib::string& featureName,
-                                                   const vespalib::string& query_tensor,
-                                                   DistanceMetric distance_metric)
-    : DistanceClosenessFixture("tensor(x[2])", false, fooCnt, barCnt, labels, featureName, query_tensor, distance_metric)
-{
+DistanceClosenessFixture::DistanceClosenessFixture(size_t fooCnt, size_t barCnt, const Labels& labels,
+                                                   const std::string& featureName, const std::string& query_tensor,
+                                                   DistanceMetric distance_metric, bool quantized_tensor)
+    : DistanceClosenessFixture("tensor(x[2])", false, fooCnt, barCnt, labels, featureName, query_tensor,
+                               distance_metric, quantized_tensor) {
 }
 
-DistanceClosenessFixture::DistanceClosenessFixture(const vespalib::string& tensor_type,
-                                                   bool direct_tensor,
-                                                   size_t fooCnt, size_t barCnt,
-                                                   const Labels& labels,
-                                                   const vespalib::string& featureName,
-                                                   const vespalib::string& query_tensor,
-                                                   DistanceMetric distance_metric)
-    : queryEnv(&indexEnv), rankSetup(factory, indexEnv),
-      mdl(), match_data(), rankProgram(), fooHandles(), barHandles(),
+DistanceClosenessFixture::DistanceClosenessFixture(const std::string& tensor_type, bool direct_tensor, size_t fooCnt,
+                                                   size_t barCnt, const Labels& labels,
+                                                   const std::string& featureName, const std::string& query_tensor,
+                                                   DistanceMetric distance_metric, bool quantized_tensor)
+    : queryEnv(&indexEnv),
+      rankSetup(factory, indexEnv),
+      mdl(),
+      match_data(),
+      rankProgram(),
+      fooHandles(),
+      barHandles(),
       tensor_attr(),
       docid_limit(11),
-      _failed(false)
-{
+      _quantized(quantized_tensor),
+      _failed(false) {
     for (size_t i = 0; i < fooCnt; ++i) {
         uint32_t fieldId = indexEnv.getFieldByName("foo")->id();
         fooHandles.push_back(mdl.allocTermField(fieldId));
@@ -100,7 +103,8 @@ DistanceClosenessFixture::DistanceClosenessFixture(const vespalib::string& tenso
         queryEnv.getTerms().push_back(term);
     }
     if (!query_tensor.empty()) {
-        tensor_attr = create_tensor_attribute("bar", tensor_type, distance_metric, direct_tensor, docid_limit);
+        tensor_attr = create_tensor_attribute("bar", tensor_type, distance_metric, direct_tensor, quantized_tensor,
+                                              docid_limit);
         indexEnv.getAttributeMap().add(tensor_attr);
         search::fef::indexproperties::type::Attribute::set(indexEnv.getProperties(), "bar", tensor_type);
         set_query_tensor("qbar", "tensor(x[2])", TensorSpec::from_expr(query_tensor));
@@ -120,25 +124,23 @@ DistanceClosenessFixture::DistanceClosenessFixture(const vespalib::string& tenso
 
 DistanceClosenessFixture::~DistanceClosenessFixture() = default;
 
-void
-DistanceClosenessFixture::set_attribute_tensor(uint32_t docid, const vespalib::eval::TensorSpec& spec)
-{
+void DistanceClosenessFixture::set_attribute_tensor(uint32_t docid, const vespalib::eval::TensorSpec& spec) {
     auto tensor = SimpleValue::from_spec(spec);
-    tensor_attr->setTensor(docid, *tensor);
+    if (!_quantized) {
+        tensor_attr->setTensor(docid, *tensor);
+    } else {
+        tensor_attr->setTensor(docid, *tensor_attr->make_quantizer()->quantize(*tensor));
+    }
     tensor_attr->commit();
 }
 
-void
-DistanceClosenessFixture::set_query_tensor(const vespalib::string& query_tensor_name,
-                                           const vespalib::string& tensor_type,
-                                           const TensorSpec& spec)
-{
+void DistanceClosenessFixture::set_query_tensor(const std::string& query_tensor_name, const std::string& tensor_type,
+                                                const TensorSpec& spec) {
     search::fef::indexproperties::type::QueryFeature::set(indexEnv.getProperties(), query_tensor_name, tensor_type);
-    auto tensor = SimpleValue::from_spec(spec);
+    auto                tensor = SimpleValue::from_spec(spec);
     vespalib::nbostream stream;
     vespalib::eval::encode_value(*tensor, stream);
     queryEnv.getProperties().add(query_tensor_name, std::string_view(stream.peek(), stream.size()));
 }
 
-}
-
+} // namespace search::features::test

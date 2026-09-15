@@ -2,7 +2,8 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <iosfwd>
+#include <string>
 
 namespace vespalib {
 
@@ -14,19 +15,10 @@ private:
     size_t _allocatedBytesOnHold;
 
 public:
-    MemoryUsage() noexcept
-        : _allocatedBytes(0),
-          _usedBytes(0),
-          _deadBytes(0),
-          _allocatedBytesOnHold(0)
-    { }
+    MemoryUsage() noexcept : _allocatedBytes(0), _usedBytes(0), _deadBytes(0), _allocatedBytesOnHold(0) {}
 
     MemoryUsage(size_t allocated, size_t used, size_t dead, size_t onHold) noexcept
-        : _allocatedBytes(allocated),
-          _usedBytes(used),
-          _deadBytes(dead),
-          _allocatedBytesOnHold(onHold)
-    { }
+        : _allocatedBytes(allocated), _usedBytes(used), _deadBytes(dead), _allocatedBytesOnHold(onHold) {}
 
     size_t allocatedBytes() const { return _allocatedBytes; }
     size_t usedBytes() const { return _usedBytes; }
@@ -50,17 +42,23 @@ public:
         _allocatedBytesOnHold += inc;
     }
 
-    void merge(const MemoryUsage & rhs) {
+    void merge(const MemoryUsage& rhs) noexcept {
         _allocatedBytes += rhs._allocatedBytes;
         _usedBytes += rhs._usedBytes;
         _deadBytes += rhs._deadBytes;
         _allocatedBytesOnHold += rhs._allocatedBytesOnHold;
     }
-    string toString() const;
+
+    bool operator==(const MemoryUsage& rhs) const noexcept {
+        return _allocatedBytes == rhs._allocatedBytes && _usedBytes == rhs._usedBytes &&
+               _deadBytes == rhs._deadBytes && _allocatedBytesOnHold == rhs._allocatedBytesOnHold;
+    }
+    std::string toString() const;
 };
 
 class asciistream;
 
-asciistream & operator << (asciistream & os, const MemoryUsage & usage);
+asciistream& operator<<(asciistream& os, const MemoryUsage& usage);
+std::ostream& operator<<(std::ostream& os, const MemoryUsage& usage);
 
 } // namespace vespalib

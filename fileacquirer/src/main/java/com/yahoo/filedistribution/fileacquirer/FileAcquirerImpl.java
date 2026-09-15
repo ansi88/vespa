@@ -2,23 +2,28 @@
 package com.yahoo.filedistribution.fileacquirer;
 
 import com.yahoo.config.FileReference;
-import com.yahoo.jrt.ErrorCode;
 import com.yahoo.jrt.Request;
 import com.yahoo.jrt.Spec;
 import com.yahoo.jrt.StringValue;
 import com.yahoo.jrt.Supervisor;
 import com.yahoo.jrt.Target;
 import com.yahoo.jrt.Transport;
-import com.yahoo.vespa.config.FileReferenceDoesNotExistException;
 
 import java.io.File;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import static com.yahoo.filedistribution.fileacquirer.FileAcquirerImpl.FileDistributionErrorCode.fileReferenceNotFound;
+import static com.yahoo.jrt.ErrorCode.ABORT;
+import static com.yahoo.jrt.ErrorCode.CONNECTION;
+import static com.yahoo.jrt.ErrorCode.GENERAL_ERROR;
+import static com.yahoo.jrt.ErrorCode.OVERLOAD;
+import static com.yahoo.jrt.ErrorCode.TIMEOUT;
 import static com.yahoo.net.HostName.getLocalhost;
 
 /**
@@ -36,7 +41,8 @@ class FileAcquirerImpl implements FileAcquirer {
 
         public static final int baseErrorCode = 0x10000;
         public static final int baseFileProviderErrorCode = baseErrorCode + 0x1000;
-        public static final int fileReferenceDoesNotExists = baseFileProviderErrorCode;
+        public static final int fileReferenceNotFound = baseFileProviderErrorCode;
+        public static final int fileReferencePermissionDenied = baseFileProviderErrorCode + 1;
 
     }
 
@@ -113,7 +119,7 @@ class FileAcquirerImpl implements FileAcquirer {
 
     private boolean temporaryError(int errorCode) {
         return switch (errorCode) {
-            case ErrorCode.ABORT, ErrorCode.CONNECTION, ErrorCode.GENERAL_ERROR, ErrorCode.OVERLOAD, ErrorCode.TIMEOUT -> true;
+            case ABORT, CONNECTION, GENERAL_ERROR, OVERLOAD, TIMEOUT, fileReferenceNotFound -> true;
             default -> false;
         };
     }
@@ -128,7 +134,6 @@ class FileAcquirerImpl implements FileAcquirer {
      * config system.
      *
      * @throws TimeoutException if the file or directory could not be retrieved in time.
-     * @throws FileReferenceDoesNotExistException if the file is no longer available (due to reloading of config).
      */
     public File waitFor(FileReference fileReference, long timeout, TimeUnit timeUnit) throws InterruptedException {
         Timer timer = new Timer(timeout, timeUnit);
@@ -152,14 +157,11 @@ class FileAcquirerImpl implements FileAcquirer {
                 log.log(Level.INFO, "Retrying waitFor for " + fileReference + ": " + request.errorCode() + " -- " + request.errorMessage());
                 Thread.sleep(1000);
             } else {
-                if (request.errorCode() == FileDistributionErrorCode.fileReferenceDoesNotExists)
-                    throw new FileReferenceDoesNotExistException(fileReference.value());
-                else
-                    throw new RuntimeException("Wait for " + fileReference + " failed: " + request.errorMessage() + " (" + request.errorCode() + ")");
+                throw new RuntimeException("Wait for " + fileReference + " failed: " + request.errorMessage() + " (" + request.errorCode() + ")");
             }
         } while ( timer.isTimeLeft() );
 
-        throw new TimeoutException("Timed out waiting for " + fileReference + " after " + timeout + " " + timeUnit.name().toLowerCase());
+        throw new TimeoutException("Timed out waiting for " + fileReference + " after " + timeout + " " + timeUnit.name().toLowerCase(Locale.ROOT));
     }
 
 }

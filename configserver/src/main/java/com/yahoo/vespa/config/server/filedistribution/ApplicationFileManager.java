@@ -2,6 +2,7 @@
 package com.yahoo.vespa.config.server.filedistribution;
 
 import com.yahoo.config.FileReference;
+import com.yahoo.config.provision.ApplicationId;
 import com.yahoo.io.IOUtils;
 import com.yahoo.path.Path;
 import net.jpountz.lz4.LZ4FrameOutputStream;
@@ -12,12 +13,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.URL;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.channels.ReadableByteChannel;
 import java.nio.file.Files;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 /**
  * @author baldersheim
@@ -27,11 +30,17 @@ public class ApplicationFileManager implements AddFileInterface {
     private final File applicationDir;
     private final FileDirectory fileDirectory;
     private final boolean isHosted;
+    private final Optional<ApplicationId> owner;
 
     ApplicationFileManager(File applicationDir, FileDirectory fileDirectory, boolean isHosted) {
+        this(applicationDir, fileDirectory, isHosted, Optional.empty());
+    }
+
+    ApplicationFileManager(File applicationDir, FileDirectory fileDirectory, boolean isHosted, Optional<ApplicationId> owner) {
         this.applicationDir = applicationDir;
         this.fileDirectory = fileDirectory;
         this.isHosted = isHosted;
+        this.owner = owner;
     }
 
     @Override
@@ -41,7 +50,7 @@ public class ApplicationFileManager implements AddFileInterface {
     }
 
     private FileReference addFile(File file) throws IOException {
-        return fileDirectory.addFile(file);
+        return fileDirectory.addFile(file, owner);
     }
 
     @Override
@@ -100,14 +109,14 @@ public class ApplicationFileManager implements AddFileInterface {
         try {
             file = new File(tmpDir, path.getRelative());
             Files.createDirectories(file.getParentFile().toPath());
-            URL website = new URL(uri);
+            URL website = new URI(uri).toURL();
             if ( ! List.of("http", "https").contains(website.getProtocol().toLowerCase(Locale.ROOT)))
                 throw new IllegalArgumentException("only HTTP(S) supported for URI type resources");
             rbc = Channels.newChannel(website.openStream());
             fos = new FileOutputStream(file);
             fos.getChannel().transferFrom(rbc, 0, Long.MAX_VALUE);
             return file;
-        } catch (SocketTimeoutException e) {
+        } catch (java.net.URISyntaxException|SocketTimeoutException e) {
             throw new IllegalArgumentException("Failed connecting to or reading from " + uri, e);
         } catch (IOException e) {
             throw new IllegalArgumentException("Failed creating " + file, e);

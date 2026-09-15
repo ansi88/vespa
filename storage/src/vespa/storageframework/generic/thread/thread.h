@@ -14,20 +14,21 @@
 
 #include "runnable.h"
 #include "thread_properties.h"
+
 #include <condition_variable>
 
 namespace storage::framework {
 
 /** Data kept on each thread due to the registerTick functionality. */
 struct ThreadTickData {
-    CycleType _lastTickType;
+    CycleType             _lastTickType;
     vespalib::steady_time _lastTick;
-    vespalib::duration _maxProcessingTimeSeen;
-    vespalib::duration _maxWaitTimeSeen;
+    vespalib::duration    _maxProcessingTimeSeen;
+    vespalib::duration    _maxWaitTimeSeen;
 };
 
 class Thread : public ThreadHandle {
-    vespalib::string _id;
+    std::string _id;
 
 public:
     using UP = std::unique_ptr<Thread>;
@@ -35,12 +36,12 @@ public:
     explicit Thread(std::string_view id) : _id(id) {}
     ~Thread() override = default;
 
-    [[nodiscard]] virtual const vespalib::string& getId() const { return _id; }
+    [[nodiscard]] virtual const std::string& getId() const { return _id; }
 
     /** Check whether thread have been interrupted or not. */
     [[nodiscard]] bool interrupted() const override = 0;
     /** Check whether thread have been joined or not. */
-    [[nodiscard]] virtual bool joined() const  = 0;
+    [[nodiscard]] virtual bool joined() const = 0;
 
     /**
      * Call this function to set interrupt flag, such that later calls to
@@ -57,7 +58,7 @@ public:
     virtual ThreadTickData getTickData() const = 0;
     virtual const ThreadProperties& getProperties() const = 0;
 
-    virtual vespalib::string get_live_thread_stack_trace() const = 0;
+    virtual std::string get_live_thread_stack_trace() const = 0;
 
     /**
      * Utility function to interrupt and join a thread, possibly broadcasting
@@ -65,7 +66,7 @@ public:
      */
     void interruptAndJoin();
 
-    void interruptAndJoin(std::condition_variable &cv);
+    void interruptAndJoin(std::condition_variable& cv);
 };
 
-}
+} // namespace storage::framework

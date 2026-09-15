@@ -22,7 +22,10 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * @author bratseth
@@ -134,10 +137,6 @@ public class SystemModelTestCase {
         assertTrue(vespaModel.getConfig(StandardConfig.class, "simple/simpleservice.1").baseport() != 10000);
     }
 
-    /**
-     * This test is the same as the system test cloudconfig/plugins.
-     * Be sure to update it as well if you change this.
-     */
     @Test
     void testPlugins() {
         VespaModel vespaModel = getVespaModelDoNotValidateXml(TESTDIR + "plugins");

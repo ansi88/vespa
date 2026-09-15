@@ -2,22 +2,20 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <memory>
+#include <string>
 
 namespace proton {
 
 /**
  * Interface used to inspect which fields are present in a document type.
  */
-struct IDocumentTypeInspector
-{
+struct IDocumentTypeInspector {
     using SP = std::shared_ptr<IDocumentTypeInspector>;
 
-    virtual ~IDocumentTypeInspector() =default;
+    virtual ~IDocumentTypeInspector() = default;
 
-    virtual bool hasUnchangedField(const vespalib::string &name) const = 0;
+    virtual bool hasUnchangedField(const std::string& name) const = 0;
 };
 
 } // namespace proton
-

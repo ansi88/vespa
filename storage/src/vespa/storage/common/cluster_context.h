@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace storage {
 
@@ -14,33 +14,28 @@ namespace storage {
 struct ClusterContext {
 protected:
     virtual ~ClusterContext() = default;
+
 public:
     // Returns a pointer to the cluster name.
     // Must be a valid pointer to a constant string for the
     // lifetime of all the components that may ask for it.
     // This API is for the benefit of StorageMessageAddress
     // which wants to contain the pointer returned here.
-    virtual const vespalib::string * cluster_name_ptr() const noexcept = 0;
+    virtual const std::string* cluster_name_ptr() const noexcept = 0;
 
     // convenience method
-    const vespalib::string &cluster_name() const noexcept {
-        return *cluster_name_ptr();
-    }
+    const std::string& cluster_name() const noexcept { return *cluster_name_ptr(); }
 };
 
 /**
  * Simple ClusterContext with an exposed string.
  **/
 struct SimpleClusterContext : ClusterContext {
-    vespalib::string my_cluster_name;
-    const vespalib::string * cluster_name_ptr() const noexcept override {
-        return &my_cluster_name;
-    }
+    std::string my_cluster_name;
+    const std::string* cluster_name_ptr() const noexcept override { return &my_cluster_name; }
     SimpleClusterContext() : my_cluster_name("") {}
-    explicit SimpleClusterContext(const vespalib::string& value)
-      : my_cluster_name(value)
-    {}
+    explicit SimpleClusterContext(const std::string& value) : my_cluster_name(value) {}
     ~SimpleClusterContext() override = default;
 };
 
-} // namespace
+} // namespace storage

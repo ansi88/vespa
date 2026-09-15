@@ -8,7 +8,8 @@ import ai.vespa.rankingexpression.importer.configmodelview.ImportedMlModels;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Tests rank profiles with normalizers in bad places
@@ -166,6 +167,33 @@ public class NoNormalizersTestCase extends AbstractSchemaTestCase {
         } catch (IllegalArgumentException e) {
             assertEquals("Rank profile 'p5' is invalid: " +
                          "Cannot use reciprocal_rank(nativeRank) from normalizer input foobar, only valid in global-phase expression",
+                         Exceptions.toMessageString(e));
+        }
+    }
+
+    @Test
+    void requireThatNormalizerInSortFeatureIsChecked() throws ParseException {
+        try {
+            compileSchema("""
+                          search test {
+                            document test { }
+                            rank-profile p6 {
+                                function foobar() {
+                                    expression: normalize_linear(nativeRank)
+                                }
+                                first-phase {
+                                    expression: nativeRank
+                                }
+                                sort-features {
+                                    foobar
+                                }
+                            }
+                          }
+                          """);
+            fail();
+        } catch (IllegalArgumentException e) {
+            assertEquals("Rank profile 'p6' is invalid: " +
+                         "Cannot use normalize_linear(nativeRank) from sort-feature foobar, only valid in global-phase expression",
                          Exceptions.toMessageString(e));
         }
     }

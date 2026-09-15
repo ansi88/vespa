@@ -1,38 +1,40 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 #include "indexenvironment.h"
+
 #include <vespa/searchlib/fef/i_ranking_assets_repo.h>
 #include <vespa/searchlib/fef/indexproperties.h>
 #include <vespa/vespalib/stllike/hash_set.h>
+
+#include <cassert>
 
 using namespace search::fef;
 
 namespace streaming {
 
-IndexEnvironment::IndexEnvironment(const ITableManager & tableManager) :
-    _tableManager(&tableManager),
-    _properties(),
-    _fields(),
-    _fieldNames(),
-    _motivation(RANK),
-    _ranking_assets_repo()
-{
+IndexEnvironment::IndexEnvironment(const ITableManager& tableManager)
+    : _tableManager(&tableManager),
+      _properties(),
+      _fields(1, FieldInfo::no_field()),
+      _fieldNames(),
+      _motivation(RANK),
+      _ranking_assets_repo() {
 }
 
-IndexEnvironment::IndexEnvironment(const IndexEnvironment &) = default;
-IndexEnvironment::IndexEnvironment(IndexEnvironment &&) noexcept = default;
+IndexEnvironment::IndexEnvironment(const IndexEnvironment&) = default;
+IndexEnvironment::IndexEnvironment(IndexEnvironment&&) noexcept = default;
 IndexEnvironment::~IndexEnvironment() = default;
 
-bool
-IndexEnvironment::addField(const vespalib::string& name,
-                           bool isAttribute,
-                           search::fef::FieldInfo::DataType data_type)
-{
+bool IndexEnvironment::addField(const std::string& name, bool isAttribute,
+                                search::fef::FieldInfo::DataType data_type) {
+    // The empty name belongs to the "no field" held first in _fields, which is
+    // not registered in _fieldNames and thus escapes the duplicate check below.
+    assert(!name.empty());
     if (getFieldByName(name) != nullptr) {
         return false;
     }
-    FieldInfo info(isAttribute ? FieldType::ATTRIBUTE : FieldType::INDEX,
-                   FieldInfo::CollectionType::SINGLE, name, _fields.size());
+    FieldInfo info(isAttribute ? FieldType::ATTRIBUTE : FieldType::INDEX, FieldInfo::CollectionType::SINGLE, name,
+                   _fields.size());
     info.set_data_type(data_type);
     info.addAttribute(); // we are able to produce needed attributes at query time
     _fields.push_back(info);
@@ -47,14 +49,12 @@ IndexEnvironment::addField(const vespalib::string& name,
  * propagates the name to field id mapping for the added virtual
  * fields.
  */
-void
-IndexEnvironment::add_virtual_fields()
-{
-    vespalib::hash_set<vespalib::string> vfields;
+void IndexEnvironment::add_virtual_fields() {
+    vespalib::hash_set<std::string> vfields;
     for (auto& field : _fields) {
-        vespalib::string name(field.name());
-        auto pos = name.rfind('.');
-        while (pos != vespalib::string::npos) {
+        std::string name(field.name());
+        auto        pos = name.rfind('.');
+        while (pos != std::string::npos) {
             name = name.substr(0, pos);
             if (_fieldNames.contains(name)) {
                 break;
@@ -71,38 +71,35 @@ IndexEnvironment::add_virtual_fields()
     }
 }
 
-void
-IndexEnvironment::fixup_fields()
-{
+void IndexEnvironment::fixup_fields() {
     for (auto& field : _fields) {
+        if (field.is_no_field()) {
+            continue;
+        }
         if (indexproperties::IsFilterField::check(_properties, field.name())) {
             field.setFilter(true);
-	}
+        }
+        auto element_gap_setting = indexproperties::matching::ElementGap::lookup_for_field(_properties, field.name());
+        if (element_gap_setting.has_value()) {
+            field.set_element_gap(element_gap_setting.value());
+        }
     }
 }
 
-void
-IndexEnvironment::set_ranking_assets_repo(std::shared_ptr<const IRankingAssetsRepo> ranking_assets_repo)
-{
+void IndexEnvironment::set_ranking_assets_repo(std::shared_ptr<const IRankingAssetsRepo> ranking_assets_repo) {
     _ranking_assets_repo = std::move(ranking_assets_repo);
 }
 
-vespalib::eval::ConstantValue::UP
-IndexEnvironment::getConstantValue(const vespalib::string& name) const
-{
+vespalib::eval::ConstantValue::UP IndexEnvironment::getConstantValue(const std::string& name) const {
     return _ranking_assets_repo->getConstant(name);
 }
 
-vespalib::string
-IndexEnvironment::getRankingExpression(const vespalib::string& name) const
-{
+std::string IndexEnvironment::getRankingExpression(const std::string& name) const {
     return _ranking_assets_repo->getExpression(name);
 }
 
-const search::fef::OnnxModel*
-IndexEnvironment::getOnnxModel(const vespalib::string& name) const
-{
+const search::fef::OnnxModel* IndexEnvironment::getOnnxModel(const std::string& name) const {
     return _ranking_assets_repo->getOnnxModel(name);
 }
 
-}
+} // namespace streaming

@@ -14,10 +14,9 @@
 
 namespace document::select {
 
-class DocType : public Node
-{
+class DocType : public Node {
 private:
-    vespalib::string _doctype;
+    std::string _doctype;
 
 public:
     DocType(std::string_view doctype);
@@ -28,7 +27,6 @@ public:
     void visit(Visitor& v) const override;
 
     Node::UP clone() const override { return wrapParens(new DocType(_doctype)); }
-
 };
 
-}
+} // namespace document::select

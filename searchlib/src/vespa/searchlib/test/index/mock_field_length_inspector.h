@@ -10,10 +10,10 @@ namespace search::index::test {
  * Mock of IFieldLengthInspector returning empty field info for all fields.
  */
 class MockFieldLengthInspector : public IFieldLengthInspector {
-    FieldLengthInfo get_field_length_info(const vespalib::string& field_name) const override {
-        (void) field_name;
+    FieldLengthInfo get_field_length_info(const std::string& field_name) const override {
+        (void)field_name;
         return FieldLengthInfo();
     }
 };
 
-}
+} // namespace search::index::test

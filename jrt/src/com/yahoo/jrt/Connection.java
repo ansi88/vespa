@@ -178,6 +178,8 @@ class Connection extends Target {
         try {
             socket.channel().configureBlocking(false);
             socket.channel().socket().setTcpNoDelay(tcpNoDelay);
+            socket.channel().socket().setKeepAlive(true);
+            socket.channel().socket().setSoLinger(true, 0);
             selectionKey = socket.channel().register(selector,
                     SelectionKey.OP_READ | SelectionKey.OP_WRITE,
                     this);
@@ -395,6 +397,10 @@ class Connection extends Target {
         return ((socket != null) && (socket.channel() != null));
     }
 
+    SocketChannel socketChannel() {
+        return hasSocket() ? socket.channel() : null;
+    }
+
     public void closeSocket() {
         if (hasSocket()) {
             try {
@@ -425,9 +431,9 @@ class Connection extends Target {
         return true;
     }
 
-    ///////////////////////////////////////////////////////////////////////////
+    // -------------------------------------------------------------------------
     // Methods defined in the Target superclass
-    ///////////////////////////////////////////////////////////////////////////
+    // -------------------------------------------------------------------------
 
     public boolean isValid() {
         return (state != CLOSED);

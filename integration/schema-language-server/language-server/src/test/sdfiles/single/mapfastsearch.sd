@@ -1,0 +1,17 @@
+schema mapfastsearch {
+    document mapfastsearch {
+        field plain type map<string, string> {
+            indexing: summary
+        }
+        field short_form type map<string, string> {
+            indexing: summary
+            map: fast-search
+        }
+        field block_form type map<string, string> {
+            indexing: summary
+            map {
+                fast-search
+            }
+        }
+    }
+}

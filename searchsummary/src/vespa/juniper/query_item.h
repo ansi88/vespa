@@ -2,9 +2,11 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
-namespace search::parseitem { enum class ItemCreator; }
+namespace search::parseitem {
+enum class ItemCreator;
+}
 
 namespace juniper {
 
@@ -21,4 +23,4 @@ public:
     virtual ItemCreator get_creator() const = 0;
 };
 
-};
+} // namespace juniper

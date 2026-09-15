@@ -11,17 +11,17 @@
  */
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace storage::framework {
 
 struct ManagedComponent;
 
 struct ComponentRegister {
-    virtual ~ComponentRegister() {}
+    virtual ~ComponentRegister() = default;
 
     virtual void registerComponent(ManagedComponent&) = 0;
     virtual void requestShutdown(std::string_view reason) = 0;
 };
 
-}
+} // namespace storage::framework

@@ -2,8 +2,10 @@
 #pragma once
 
 #include "iflushstrategy.h"
-#include <vespa/vespalib/stllike/string.h>
+#include "prepare_restart_costs_config.h"
+
 #include <map>
+#include <string>
 
 namespace proton {
 
@@ -16,28 +18,20 @@ namespace proton {
  * The cost of replaying the transaction log is: the number of bytes to replay * a replay speed factor.
  * The cost of flushing a flush target is: the number of bytes to write * a write speed factor.
  */
-class PrepareRestartFlushStrategy : public IFlushStrategy
-{
+class PrepareRestartFlushStrategy : public IFlushStrategy {
 public:
-    struct Config
-    {
-        double tlsReplayByteCost;
-        double tlsReplayOperationCost;
-        double flushTargetWriteCost;
-        Config(double tlsReplayByteCost_,
-               double tlsReplayOperationCost_,
-               double flushTargetWriteCost_);
-    };
+    using Config = flushengine::PrepareRestartCostsConfig;
 
 private:
     Config _cfg;
 
 public:
-    PrepareRestartFlushStrategy(const Config &cfg);
+    PrepareRestartFlushStrategy(const Config& cfg);
 
-    virtual FlushContext::List getFlushTargets(const FlushContext::List &targetList,
-                                               const flushengine::TlsStatsMap &tlsStatsMap,
-                                               const flushengine::ActiveFlushStats&) const override;
+    flushengine::FlushStrategyResult getFlushTargets(const FlushContext::List&       targetList,
+                                                     const flushengine::TlsStatsMap& tlsStatsMap,
+                                                     const flushengine::ActiveFlushStats&) const override;
+    std::string name() const override;
 };
 
 } // namespace proton

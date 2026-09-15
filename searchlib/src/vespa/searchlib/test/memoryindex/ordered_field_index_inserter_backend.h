@@ -2,10 +2,13 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <cstdint>
 #include <sstream>
+#include <string>
 
-namespace search::index { class DocIdAndFeatures; }
+namespace search::index {
+class DocIdAndFeatures;
+}
 
 namespace search::memoryindex::test {
 
@@ -15,15 +18,16 @@ namespace search::memoryindex::test {
  */
 class OrderedFieldIndexInserterBackend {
     std::stringstream _ss;
-    bool _first;
-    bool _verbose;
-    bool _show_interleaved_features;
+    bool              _first;
+    bool              _verbose;
+    bool              _show_interleaved_features;
     void addComma();
+
 public:
     OrderedFieldIndexInserterBackend();
     ~OrderedFieldIndexInserterBackend();
     void setNextWord(const std::string_view word);
-    void add(uint32_t docId, const index::DocIdAndFeatures &features);
+    void add(uint32_t docId, const index::DocIdAndFeatures& features);
     void remove(uint32_t docId);
     void rewind(uint32_t field_id);
     std::string toStr() const;
@@ -32,4 +36,4 @@ public:
     void set_show_interleaved_features() { _show_interleaved_features = true; }
 };
 
-}
+} // namespace search::memoryindex::test

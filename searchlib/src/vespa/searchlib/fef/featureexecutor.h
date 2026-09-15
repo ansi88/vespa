@@ -4,7 +4,8 @@
 
 #include "matchdata.h"
 #include "number_or_object.h"
-#include <vespa/vespalib/util/arrayref.h>
+
+#include <span>
 
 namespace search::fef {
 
@@ -20,16 +21,14 @@ class FeatureExecutor;
  **/
 class LazyValue {
 private:
-    const NumberOrObject *_value;
-    FeatureExecutor *_executor;
+    const NumberOrObject* _value;
+    FeatureExecutor*      _executor;
+
 public:
-    explicit LazyValue(const NumberOrObject *value) : _value(value), _executor(nullptr) {}
-    LazyValue(const NumberOrObject *value, FeatureExecutor *executor)
-        : _value(value), _executor(executor) {}
+    explicit LazyValue(const NumberOrObject* value) : _value(value), _executor(nullptr) {}
+    LazyValue(const NumberOrObject* value, FeatureExecutor* executor) : _value(value), _executor(executor) {}
     bool is_const() const { return (_executor == nullptr); }
-    bool is_same(const LazyValue &rhs) const {
-        return ((_value == rhs._value) && (_executor == rhs._executor));
-    }
+    bool is_same(const LazyValue& rhs) const { return ((_value == rhs._value) && (_executor == rhs._executor)); }
     inline double as_number(uint32_t docid) const;
     inline vespalib::eval::Value::CREF as_object(uint32_t docid) const;
 };
@@ -40,17 +39,17 @@ public:
  * feature executor may also use term match data as input, or whatever
  * it has access to regarding the index.
  **/
-class FeatureExecutor
-{
+class FeatureExecutor {
 public:
     class Inputs {
-        uint32_t _docid;
-        vespalib::ConstArrayRef<LazyValue> _inputs;
+        uint32_t                   _docid;
+        std::span<const LazyValue> _inputs;
+
     public:
         Inputs() : _docid(-1), _inputs() {}
         void set_docid(uint32_t docid) { _docid = docid; }
         uint32_t get_docid() const { return _docid; }
-        void bind(vespalib::ConstArrayRef<LazyValue> inputs) { _inputs = inputs; }
+        void bind(std::span<const LazyValue> inputs) { _inputs = inputs; }
         inline feature_t get_number(size_t idx) const;
         inline vespalib::eval::Value::CREF get_object(size_t idx) const;
         size_t size() const { return _inputs.size(); }
@@ -58,36 +57,21 @@ public:
 
     class Outputs {
     public:
-        using OutputArray = vespalib::ArrayRef<NumberOrObject>;
+        using OutputArray = std::span<NumberOrObject>;
         Outputs() : _outputs() {}
-        void bind(OutputArray  outputs) { _outputs = outputs; }
-        void set_number(size_t idx, feature_t value) {
-            _outputs[idx].as_number = value;
-        }
-        void set_object(size_t idx, vespalib::eval::Value::CREF value) {
-            _outputs[idx].as_object = value;
-        }
-        feature_t *get_number_ptr(size_t idx) {
-            return &_outputs[idx].as_number;
-        }
-        vespalib::eval::Value::CREF *get_object_ptr(size_t idx) {
-            return &_outputs[idx].as_object;
-        }
-        feature_t get_number(size_t idx) const {
-            return _outputs[idx].as_number;
-        }
-        vespalib::eval::Value::CREF get_object(size_t idx) const {
-            return _outputs[idx].as_object;
-        }
-        const NumberOrObject *get_raw(size_t idx) const {
-            return &_outputs[idx];
-        }
-        OutputArray get_bound() const {
-            return _outputs;
-        }
+        void bind(OutputArray outputs) { _outputs = outputs; }
+        void set_number(size_t idx, feature_t value) { _outputs[idx].as_number = value; }
+        void set_object(size_t idx, vespalib::eval::Value::CREF value) { _outputs[idx].as_object = value; }
+        feature_t* get_number_ptr(size_t idx) { return &_outputs[idx].as_number; }
+        vespalib::eval::Value::CREF* get_object_ptr(size_t idx) { return &_outputs[idx].as_object; }
+        feature_t get_number(size_t idx) const { return _outputs[idx].as_number; }
+        vespalib::eval::Value::CREF get_object(size_t idx) const { return _outputs[idx].as_object; }
+        const NumberOrObject* get_raw(size_t idx) const { return &_outputs[idx]; }
+        OutputArray get_bound() const { return _outputs; }
         size_t size() const { return _outputs.size(); }
+
     private:
-        vespalib::ArrayRef<NumberOrObject> _outputs;
+        std::span<NumberOrObject> _outputs;
     };
 
 private:
@@ -95,9 +79,9 @@ private:
     Outputs _outputs;
 
 protected:
-    virtual void handle_bind_inputs(vespalib::ConstArrayRef<LazyValue> inputs);
-    virtual void handle_bind_outputs(vespalib::ArrayRef<NumberOrObject> outputs);
-    virtual void handle_bind_match_data(const MatchData &md);
+    virtual void handle_bind_inputs(std::span<const LazyValue> inputs);
+    virtual void handle_bind_outputs(std::span<NumberOrObject> outputs);
+    virtual void handle_bind_match_data(const MatchData& md);
 
     /**
      * Execute this feature executor for the given document.
@@ -112,24 +96,24 @@ public:
      * inputs nor outputs.
      **/
     FeatureExecutor();
-    FeatureExecutor(const FeatureExecutor &) = delete;
-    FeatureExecutor &operator=(const FeatureExecutor &) = delete;
+    FeatureExecutor(const FeatureExecutor&) = delete;
+    FeatureExecutor& operator=(const FeatureExecutor&) = delete;
 
     /**
-    * Obtain the fully qualified name of the concrete class for this object.
-    *
-    * @return fully qualified class name
-    **/
-    vespalib::string getClassName() const;
+     * Obtain the fully qualified name of the concrete class for this object.
+     *
+     * @return fully qualified class name
+     **/
+    std::string getClassName() const;
 
     // bind order per executor: inputs, outputs, match_data
-    void bind_inputs(vespalib::ConstArrayRef<LazyValue> inputs);
-    void bind_outputs(vespalib::ArrayRef<NumberOrObject> outputs);
-    void bind_match_data(const MatchData &md);
+    void bind_inputs(std::span<const LazyValue> inputs);
+    void bind_outputs(std::span<NumberOrObject> outputs);
+    void bind_match_data(const MatchData& md);
 
-    const Inputs &inputs() const { return _inputs; }
-    const Outputs &outputs() const { return _outputs; }
-    Outputs &outputs() { return _outputs; }
+    const Inputs& inputs() const { return _inputs; }
+    const Outputs& outputs() const { return _outputs; }
+    Outputs& outputs() { return _outputs; }
 
     /**
      * Check if this feature executor is pure. A feature executor
@@ -164,7 +148,7 @@ public:
     /**
      * Virtual destructor to allow subclassing.
      **/
-    virtual ~FeatureExecutor() {}
+    virtual ~FeatureExecutor() = default;
 };
 
 double LazyValue::as_number(uint32_t docid) const {
@@ -189,6 +173,6 @@ vespalib::eval::Value::CREF FeatureExecutor::Inputs::get_object(size_t idx) cons
     return _inputs[idx].as_object(_docid);
 }
 
-}
+} // namespace search::fef
 
 //  LocalWords:  param

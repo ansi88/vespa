@@ -3,6 +3,7 @@ package com.yahoo.config.model.application.provider;
 
 import com.yahoo.component.Version;
 import com.yahoo.vespa.config.VespaVersion;
+import com.yahoo.vespa.model.test.utils.DeployLoggerStub;
 import org.junit.jupiter.api.Test;
 
 import java.io.File;
@@ -42,6 +43,16 @@ public class SchemaValidatorTest {
             "  </admin>\n" +
             "</services>\n";
 
+    private static final String servicesWithCommerceDiscovery = "<?xml version='1.0' encoding='utf-8' ?>\n" +
+            "<services>\n" +
+            "  <commerce-discovery version='1.0'>\n" +
+            "    <product document-type='model' namespace='model' id-field='id' />\n" +
+            "    <category id-field='id' />\n" +
+            "    <variant-presentation />\n" +
+            "    <ranking-tags-registry />\n" +
+            "  </commerce-discovery>\n" +
+            "</services>\n";
+
     @Test
     void testXMLParse() throws IOException {
         SchemaValidator validator = createValidator();
@@ -49,7 +60,22 @@ public class SchemaValidatorTest {
     }
 
     @Test
-    void testXMLParseError() throws IOException {
+    void testCommerceDiscoveryIsAccepted() throws IOException {
+        SchemaValidator validator = createValidator();
+        validator.validate(new StringReader(servicesWithCommerceDiscovery));
+    }
+
+    @Test
+    void testUnknownTopLevelElementIsRejected() {
+        Throwable exception = assertThrows(RuntimeException.class, () -> {
+            SchemaValidator validator = createValidator();
+            validator.validate(new StringReader(servicesWithCommerceDiscovery.replace("commerce-discovery", "commerce-discoverh")));
+        });
+        assertTrue(exception.getMessage().contains("element \"commerce-discoverh\" not allowed"));
+    }
+
+    @Test
+    void testXMLParseError() {
         Throwable exception = assertThrows(RuntimeException.class, () -> {
             SchemaValidator validator = createValidator();
             validator.validate(new StringReader(invalidServices));
@@ -64,7 +90,7 @@ public class SchemaValidatorTest {
     }
 
     @Test
-    void testXMLParseErrorWithReader() throws IOException {
+    void testXMLParseErrorWithReader() {
         Throwable exception = assertThrows(RuntimeException.class, () -> {
             SchemaValidator validator = createValidator();
             validator.validate(new StringReader(invalidServices));
@@ -73,7 +99,7 @@ public class SchemaValidatorTest {
     }
 
     @Test
-    void testXMLParseErrorFromFile() throws IOException {
+    void testXMLParseErrorFromFile() {
         Throwable exception = assertThrows(IllegalArgumentException.class, () -> {
             SchemaValidator validator = createValidator();
             validator.validate(new File("src/test/cfg/application/invalid-services-syntax/services.xml"));
@@ -94,5 +120,57 @@ public class SchemaValidatorTest {
                 "8:  <admin version='2.0'>\n" +
                 "9:    <adminserver hostalias='node1'>\n" +
                 "10:  </admin>\n";
+    }
+
+    @Test
+    void rejectsDoctypeDeclaration() {
+        String withExternalDtd = """
+                <?xml version='1.0' encoding='utf-8' ?>
+                <!DOCTYPE services SYSTEM "foo">
+                <services>
+                  <admin version='2.0'>
+                    <adminserver hostalias='node1' />
+                  </admin>
+                </services>
+                """;
+        Throwable exception = assertThrows(RuntimeException.class, () -> {
+            SchemaValidator validator = createValidator();
+            validator.validate(new StringReader(withExternalDtd));
+        });
+        assertTrue(exception.getMessage().contains("DOCTYPE"),
+                   "Expected the parser to reject the DOCTYPE, got: " + exception.getMessage());
+    }
+
+    @Test
+    void verifyValidFiles() throws Exception {
+        justValidate("application.rnc", "application.xml");
+        justValidate("application.rnc", "application.xml");
+        justValidate("services.rnc", "services.xml");
+        justValidate("services.rnc", "standalone-container.xml");
+        justValidate("services.rnc", "services-hosted.xml");
+        justValidate("services.rnc", "services-hosted-infrastructure.xml");
+        justValidate("deployment.rnc", "deployment.xml");
+        justValidate("deployment.rnc", "deployment-with-instances.xml");
+        justValidate("validation-overrides.rnc", "validation-overrides.xml");
+    }
+
+    @Test
+    void verifyInvalidFile() {
+        Throwable exception = assertThrows(RuntimeException.class, () -> {
+                justValidate("services.rnc", "services-bad-vespamalloc.xml");
+            });
+        assertTrue(exception.getMessage().contains("error in services-bad-vespamalloc.xml: value of attribute \"no-vespamalloc\" is invalid"));
+    }
+
+    private void justValidate(String rnc, String xml) throws Exception {
+        String rncPre = "src/main/resources/schema/";
+        String xmlPre = "src/test/schema-test-files/";
+        var validator = fromRnc(new File(rncPre + rnc));
+        validator.validate(new File(xmlPre + xml));
+    }
+
+    private SchemaValidator fromRnc(File rncFile) throws Exception {
+        DeployLoggerStub logger = new DeployLoggerStub();
+        return new SchemaValidator(rncFile, logger);
     }
 }

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
 # BEGIN environment bootstrap section
@@ -84,5 +84,6 @@ exec java \
 -XX:ThreadStackSize=512 \
 -XX:MaxJavaStackTraceDepth=1000000 \
 -Djava.awt.headless=true \
--Xms128m -Xmx1024m $(getJavaOptionsIPV46) \
+-Dvespa.replace_invalid_unicode=true \
+-Xms128m -Xmx8192m $(getJavaOptionsIPV46) \
 -cp ${VESPA_HOME}/lib/jars/vespaclient-java-jar-with-dependencies.jar com.yahoo.vespasignificance.Main "$@"

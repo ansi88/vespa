@@ -3,6 +3,7 @@ package com.yahoo.vespa.indexinglanguage.expressions;
 
 import com.yahoo.document.DataType;
 import com.yahoo.document.PositionDataType;
+import com.yahoo.document.StructDataType;
 import com.yahoo.document.datatypes.IntegerFieldValue;
 import com.yahoo.document.datatypes.LongFieldValue;
 import com.yahoo.document.datatypes.Struct;
@@ -13,19 +14,40 @@ import com.yahoo.geo.ZCurve;
  */
 public final class ZCurveExpression extends Expression {
 
-    public ZCurveExpression() {
-        super(PositionDataType.INSTANCE);
+    @Override
+    public DataType setInputType(DataType input, TypeContext context) {
+        if (input == null) return null;
+        if ( ! (input instanceof StructDataType struct))
+            throw new VerificationException(this, "This requires a struct as input, but got " + input.getName());
+        requireIntegerField(PositionDataType.FIELD_X, struct);
+        requireIntegerField(PositionDataType.FIELD_Y, struct);
+
+        super.setInputType(input, context);
+        return DataType.LONG;
+    }
+
+    private void requireIntegerField(String fieldName, StructDataType struct) {
+        var field = struct.getField(fieldName);
+        if (field == null || field.getDataType() != DataType.INT)
+            throw new VerificationException(this, "The struct '" + struct.getName() +
+                                                  "' does not have an integer field named '" + fieldName + "'");
+    }
+
+    @Override
+    public DataType setOutputType(DataType output, TypeContext context) {
+        super.setOutputType(DataType.LONG, output, null, context);
+        return PositionDataType.INSTANCE;
     }
 
     @Override
     protected void doExecute(ExecutionContext context) {
-        Struct input = ((Struct) context.getValue());
+        Struct input = ((Struct) context.getCurrentValue());
         Integer x = getFieldValue(input, PositionDataType.FIELD_X);
         Integer y = getFieldValue(input, PositionDataType.FIELD_Y);
         if (x != null && y != null) {
-            context.setValue(new LongFieldValue(ZCurve.encode(x, y)));
+            context.setCurrentValue(new LongFieldValue(ZCurve.encode(x, y)));
         } else {
-            context.setValue(DataType.LONG.createFieldValue());
+            context.setCurrentValue(DataType.LONG.createFieldValue());
         }
     }
 
@@ -35,25 +57,11 @@ public final class ZCurveExpression extends Expression {
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return DataType.LONG;
-    }
-
-    @Override
-    public String toString() {
-        return "zcurve";
-    }
+    public String toString() { return "zcurve"; }
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof ZCurveExpression)) {
-            return false;
-        }
+        if (!(obj instanceof ZCurveExpression)) return false;
         return true;
     }
 

@@ -10,16 +10,16 @@ namespace vespalib::portal {
 
 namespace {
 
-void strip_cr(vespalib::string &str) {
+void strip_cr(std::string& str) {
     if (!str.empty() && str[str.size() - 1] == '\r') {
         str.resize(str.size() - 1);
     }
 }
 
-std::vector<vespalib::string> split(std::string_view str, char sep) {
-    vespalib::string token;
-    std::vector<vespalib::string> list;
-    for (char c: str) {
+std::vector<std::string> split(std::string_view str, char sep) {
+    std::string              token;
+    std::vector<std::string> list;
+    for (char c : str) {
         if (c != sep) {
             token.push_back(c);
         } else if (!token.empty()) {
@@ -58,8 +58,8 @@ int decode_hex_num(std::string_view src, size_t idx) {
     return ((a << 4) | b);
 }
 
-vespalib::string dequote(std::string_view src) {
-    vespalib::string dst;
+std::string dequote(std::string_view src) {
+    std::string dst;
     for (size_t idx = 0; idx < src.size(); ++idx) {
         char c = src[idx];
         if (c == '+') {
@@ -76,23 +76,17 @@ vespalib::string dequote(std::string_view src) {
     return dst;
 }
 
-} // namespace vespalib::portal::<unnamed>
+} // namespace
 
-void
-HttpRequest::set_done()
-{
+void HttpRequest::set_done() {
     _done = true;
 }
 
-void
-HttpRequest::set_error()
-{
+void HttpRequest::set_error() {
     _error = true;
 }
 
-void
-HttpRequest::handle_request_line(const vespalib::string &line)
-{
+void HttpRequest::handle_request_line(const std::string& line) {
     auto parts = split(line, ' ');
     if (parts.size() != 3) {
         return set_error(); // malformed request line
@@ -101,14 +95,14 @@ HttpRequest::handle_request_line(const vespalib::string &line)
     _uri = parts[1];
     _version = parts[2];
     size_t query_sep = _uri.find("?");
-    if (query_sep == vespalib::string::npos) {
+    if (query_sep == std::string::npos) {
         _path = dequote(_uri);
     } else {
         _path = dequote(_uri.substr(0, query_sep));
         auto query = split(_uri.substr(query_sep + 1), '&');
-        for (const auto &param: query) {
+        for (const auto& param : query) {
             size_t value_sep = param.find("=");
-            if (value_sep == vespalib::string::npos) {
+            if (value_sep == std::string::npos) {
                 _params[dequote(param)] = "";
             } else {
                 auto key = param.substr(0, value_sep);
@@ -119,23 +113,21 @@ HttpRequest::handle_request_line(const vespalib::string &line)
     }
 }
 
-void
-HttpRequest::handle_header_line(const vespalib::string &line)
-{
+void HttpRequest::handle_header_line(const std::string& line) {
     if (line.empty()) {
         return set_done();
     }
     size_t pos = 0;
     size_t end = line.size();
-    bool continuation = (line[0] == ' ') || (line[0] == '\t');
+    bool   continuation = (line[0] == ' ') || (line[0] == '\t');
     if (!continuation) {
         pos = line.find(":");
-        if (pos == vespalib::string::npos) {
+        if (pos == std::string::npos) {
             return set_error(); // missing header: value separator
         } else {
             _header_name.assign(line, 0, pos++);
-            std::transform(_header_name.begin(), _header_name.end(),
-                           _header_name.begin(), [](unsigned char c) { return std::tolower(c); });
+            std::transform(_header_name.begin(), _header_name.end(), _header_name.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
         }
     }
     if (_header_name.empty()) {
@@ -147,9 +139,9 @@ HttpRequest::handle_header_line(const vespalib::string &line)
     while ((pos < end) && (std::isspace(static_cast<unsigned char>(line[end - 1])))) {
         --end; // strip trailing whitespace
     }
-    auto header_insert_result = _headers.insert(std::make_pair(_header_name, vespalib::string()));
-    bool header_found = !header_insert_result.second;
-    vespalib::string &header_value = header_insert_result.first->second;
+    auto         header_insert_result = _headers.insert(std::make_pair(_header_name, std::string()));
+    bool         header_found = !header_insert_result.second;
+    std::string& header_value = header_insert_result.first->second;
     if (header_found) {
         if (continuation) {
             header_value.push_back(' ');
@@ -160,9 +152,7 @@ HttpRequest::handle_header_line(const vespalib::string &line)
     header_value.append(line.data() + pos, end - pos);
 }
 
-void
-HttpRequest::handle_line(const vespalib::string &line)
-{
+void HttpRequest::handle_line(const std::string& line) {
     if (_first) {
         handle_request_line(line);
         _first = false;
@@ -182,15 +172,12 @@ HttpRequest::HttpRequest()
       _done(false),
       _error(false),
       _header_name(),
-      _line_buffer()
-{
+      _line_buffer() {
 }
 
 HttpRequest::~HttpRequest() = default;
 
-size_t
-HttpRequest::handle_data(const char *buf, size_t len)
-{
+size_t HttpRequest::handle_data(const char* buf, size_t len) {
     size_t used = 0;
     while (need_more_data() && (used < len)) {
         char c = buf[used++];
@@ -205,18 +192,14 @@ HttpRequest::handle_data(const char *buf, size_t len)
     return used;
 }
 
-void
-HttpRequest::resolve_host(const vespalib::string &my_host)
-{
+void HttpRequest::resolve_host(const std::string& my_host) {
     _host = get_header("host");
     if (_host.empty()) {
         _host = my_host;
     }
 }
 
-const vespalib::string &
-HttpRequest::get_header(const vespalib::string &name) const
-{
+const std::string& HttpRequest::get_header(const std::string& name) const {
     auto pos = _headers.find(name);
     if (pos == _headers.end()) {
         return _empty;
@@ -224,15 +207,11 @@ HttpRequest::get_header(const vespalib::string &name) const
     return pos->second;
 }
 
-bool
-HttpRequest::has_param(const vespalib::string &name) const
-{
+bool HttpRequest::has_param(const std::string& name) const {
     return (_params.find(name) != _params.end());
 }
 
-const vespalib::string &
-HttpRequest::get_param(const vespalib::string &name) const
-{
+const std::string& HttpRequest::get_param(const std::string& name) const {
     auto pos = _params.find(name);
     if (pos == _params.end()) {
         return _empty;

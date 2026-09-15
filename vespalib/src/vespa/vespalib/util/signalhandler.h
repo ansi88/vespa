@@ -1,11 +1,12 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
-#include <csignal>
-#include <vector>
-#include <atomic>
 #include <pthread.h>
+
+#include <atomic>
+#include <csignal>
+#include <string>
+#include <vector>
 
 namespace vespalib {
 
@@ -21,8 +22,7 @@ namespace vespalib {
  * to type-safe enums. All available signal handlers are created
  * during static initialization at program startup.
  **/
-class SignalHandler
-{
+class SignalHandler {
 private:
     /**
      * Data structure keeping track of all registered signal handlers.
@@ -58,7 +58,6 @@ private:
      **/
     void gotSignal() noexcept __attribute__((noinline));
 
-
     /**
      * Internal async signal-safe function used to dump frame addresses of a signal-interrupted
      * thread to a shared buffer that will be read by the signalling thread.
@@ -74,8 +73,8 @@ private:
      **/
     explicit SignalHandler(int signal);
 
-    SignalHandler(const SignalHandler &) = delete;
-    SignalHandler &operator=(const SignalHandler &) = delete;
+    SignalHandler(const SignalHandler&) = delete;
+    SignalHandler& operator=(const SignalHandler&) = delete;
 
     static SignalHandler USR2;
 
@@ -142,10 +141,9 @@ public:
      * Due to potentially heavy internal synchronization overhead, this is not a function
      * that should be used in any kind of hot code path. Intended for debugging purposes.
      */
-    static string get_cross_thread_stack_trace(pthread_t thread_id);
+    static std::string get_cross_thread_stack_trace(pthread_t thread_id);
 
     static void shutdown();
 };
 
-} // vespalib
-
+} // namespace vespalib

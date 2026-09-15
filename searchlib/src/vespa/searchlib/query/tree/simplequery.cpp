@@ -18,6 +18,8 @@ SimpleONear::~SimpleONear() = default;
 
 SimpleOr::~SimpleOr() = default;
 
+SimpleWeakAnd::~SimpleWeakAnd() = default;
+
 SimpleEquiv::~SimpleEquiv() = default;
 
 SimplePhrase::~SimplePhrase() = default;
@@ -31,6 +33,7 @@ SimpleDotProduct::~SimpleDotProduct() = default;
 SimpleWandTerm::~SimpleWandTerm() = default;
 
 SimpleRank::~SimpleRank() = default;
+SimpleLabelWrapper::~SimpleLabelWrapper() = default;
 
 SimpleNumberTerm::~SimpleNumberTerm() = default;
 
@@ -39,6 +42,7 @@ SimpleLocationTerm::~SimpleLocationTerm() = default;
 SimplePrefixTerm::~SimplePrefixTerm() = default;
 
 SimpleRangeTerm::~SimpleRangeTerm() = default;
+SimpleStringRangeTerm::~SimpleStringRangeTerm() = default;
 
 SimpleStringTerm::~SimpleStringTerm() = default;
 
@@ -56,4 +60,6 @@ SimpleFuzzyTerm::~SimpleFuzzyTerm() = default;
 
 SimpleInTerm::~SimpleInTerm() = default;
 
-}
+SimpleWordAlternatives::~SimpleWordAlternatives() = default;
+
+} // namespace search::query

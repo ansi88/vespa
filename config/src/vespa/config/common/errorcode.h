@@ -7,14 +7,14 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace config {
 
 class ErrorCode {
 private:
     ErrorCode();
-    ErrorCode(const ErrorCode &);
+    ErrorCode(const ErrorCode&);
 
 public:
     static const int UNKNOWN_CONFIG = 100000;
@@ -45,8 +45,7 @@ public:
 
     static const int INCONSISTENT_CONFIG_MD5 = UNKNOWN_CONFIG + 400;
 
-    static vespalib::string getName(int error);
+    static std::string getName(int error);
 };
 
-}
-
+} // namespace config

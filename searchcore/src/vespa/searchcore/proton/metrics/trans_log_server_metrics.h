@@ -11,33 +11,31 @@ namespace proton {
 /**
  * Metric set for all metrics reported by transaction log server.
  */
-class TransLogServerMetrics
-{
+class TransLogServerMetrics {
 public:
-    struct DomainMetrics : public metrics::MetricSet
-    {
-        metrics::LongValueMetric entries;
-        metrics::LongValueMetric diskUsage;
+    struct DomainMetrics : public metrics::MetricSet {
+        metrics::LongValueMetric   entries;
+        metrics::LongValueMetric   diskUsage;
         metrics::DoubleValueMetric replayTime;
 
         using UP = std::unique_ptr<DomainMetrics>;
-        DomainMetrics(metrics::MetricSet *parent, const vespalib::string &documentType);
+        DomainMetrics(metrics::MetricSet* parent, const std::string& documentType);
         ~DomainMetrics() override;
-        void update(const search::transactionlog::DomainInfo &stats);
+        void update(const search::transactionlog::DomainInfo& stats);
     };
 
 private:
-    metrics::MetricSet *_parent;
-    std::map<vespalib::string, DomainMetrics::UP> _domainMetrics;
+    metrics::MetricSet*                      _parent;
+    std::map<std::string, DomainMetrics::UP> _domainMetrics;
 
-    void considerAddDomains(const search::transactionlog::DomainStats &stats);
-    void considerRemoveDomains(const search::transactionlog::DomainStats &stats);
-    void updateDomainMetrics(const search::transactionlog::DomainStats &stats);
+    void considerAddDomains(const search::transactionlog::DomainStats& stats);
+    void considerRemoveDomains(const search::transactionlog::DomainStats& stats);
+    void updateDomainMetrics(const search::transactionlog::DomainStats& stats);
 
 public:
-    TransLogServerMetrics(metrics::MetricSet *parent);
+    TransLogServerMetrics(metrics::MetricSet* parent);
     ~TransLogServerMetrics();
-    void update(const search::transactionlog::DomainStats &stats);
+    void update(const search::transactionlog::DomainStats& stats);
 };
 
 } // namespace proton

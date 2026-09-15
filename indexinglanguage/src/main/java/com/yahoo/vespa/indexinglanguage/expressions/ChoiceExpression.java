@@ -28,7 +28,7 @@ public class ChoiceExpression extends ExpressionList<Expression> {
     }
 
     public ChoiceExpression(Collection<? extends Expression> choices) {
-        super(choices, resolveInputType(choices));
+        super(choices);
     }
 
     @Override
@@ -37,47 +37,41 @@ public class ChoiceExpression extends ExpressionList<Expression> {
     }
 
     @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
+
+        DataType resolvedType = null;
+        boolean resolvedTypeNeverAssigned = true;
+        for (var expression : expressions()) {
+            DataType outputType = expression.setInputType(inputType, context);
+            resolvedType = resolvedTypeNeverAssigned ? outputType : mostGeneralOf(resolvedType, outputType);
+            resolvedTypeNeverAssigned = false;
+        }
+        return resolvedType != null ? resolvedType : getOutputType(context);
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(outputType, context);
+
+        DataType resolvedType = null;
+        boolean resolvedTypeNeverAssigned = true;
+        for (var expression : expressions()) {
+            DataType inputType = expression.setOutputType(outputType, context);
+            resolvedType = resolvedTypeNeverAssigned ? inputType : mostGeneralOf(resolvedType, inputType);
+            resolvedTypeNeverAssigned = false;
+        }
+        return resolvedType != null ? resolvedType : getInputType(context);
+    }
+
+    @Override
     protected void doExecute(ExecutionContext context) {
-        FieldValue input = context.getValue();
+        FieldValue input = context.getCurrentValue();
         for (Expression expression : this) {
-            context.setValue(input).execute(expression);
-            if (context.getValue() != null)
+            context.setCurrentValue(input).execute(expression);
+            if (context.getCurrentValue() != null)
                 break; // value found
         }
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        DataType input = context.getValueType();
-        context.setValueType(input);
-        for (Expression exp : this)
-            context.setValueType(input).execute(exp);
-    }
-
-    private static DataType resolveInputType(Collection<? extends Expression> list) {
-        DataType previousInput = null;
-        DataType previousOutput = null;
-        for (Expression choice : list) {
-            DataType thisInput = choice.requiredInputType();
-            if (previousInput == null)
-                previousInput = thisInput;
-            else if (thisInput != null && !previousInput.isAssignableFrom(thisInput))
-                throw new VerificationException(ScriptExpression.class, "Choice expression require conflicting input types, " +
-                                                                        previousInput.getName() + " vs " + thisInput.getName());
-
-            DataType thisOutput = choice.createdOutputType();
-            if (previousOutput == null)
-                previousOutput = thisOutput;
-            else if (thisOutput != null && !previousOutput.isAssignableFrom(thisOutput))
-                throw new VerificationException(ScriptExpression.class, "Choice expression produce conflicting output types, " +
-                                                                        previousOutput.getName() + " vs " + thisOutput.getName());
-        }
-        return previousInput;
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return UnresolvedDataType.INSTANCE;
     }
 
     @Override

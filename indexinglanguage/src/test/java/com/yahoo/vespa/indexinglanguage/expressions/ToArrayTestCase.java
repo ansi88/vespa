@@ -10,7 +10,6 @@ import com.yahoo.vespa.indexinglanguage.SimpleTestAdapter;
 import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
-import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
@@ -30,18 +29,16 @@ public class ToArrayTestCase {
 
     @Test
     public void requireThatExpressionCanBeVerified() {
-        Expression exp = new ToArrayExpression();
-        assertVerify(DataType.INT, exp, DataType.getArray(DataType.INT));
-        assertVerify(DataType.STRING, exp, DataType.getArray(DataType.STRING));
-        assertVerifyThrows(null, exp, "Expected any input, but no input is specified");
+        assertVerify(DataType.INT, new ToArrayExpression(), DataType.getArray(DataType.INT));
+        assertVerify(DataType.STRING, new ToArrayExpression(), DataType.getArray(DataType.STRING));
     }
 
     @Test
     public void requireThatValueIsConverted() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter());
-        ctx.setValue(new StringFieldValue("69")).execute(new ToArrayExpression());
+        ctx.setCurrentValue(new StringFieldValue("69")).execute(new ToArrayExpression());
 
-        FieldValue val = ctx.getValue();
+        FieldValue val = ctx.getCurrentValue();
         assertEquals(Array.class, val.getClass());
 
         Array arr = (Array)val;

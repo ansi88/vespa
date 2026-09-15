@@ -3,6 +3,7 @@
 
 #include <vespa/vespalib/stllike/hash_map.h>
 #include <vespa/vespalib/util/time.h>
+
 #include <optional>
 
 namespace proton::flushengine {
@@ -15,7 +16,7 @@ public:
     using OptionalTime = std::optional<vespalib::system_time>;
 
 private:
-    using StatsMap = vespalib::hash_map<vespalib::string, vespalib::system_time>;
+    using StatsMap = vespalib::hash_map<std::string, vespalib::system_time>;
     StatsMap _stats;
 
 public:
@@ -24,9 +25,8 @@ public:
      * Set the start time for a flush in the given flush handler.
      * A start time is only updated if it is older than the current oldest one.
      */
-    void set_start_time(const vespalib::string& handler_name, vespalib::system_time start_time);
-    OptionalTime oldest_start_time(const vespalib::string& handler_name) const;
+    void set_start_time(const std::string& handler_name, vespalib::system_time start_time);
+    OptionalTime oldest_start_time(const std::string& handler_name) const;
 };
 
-}
-
+} // namespace proton::flushengine

@@ -5,36 +5,37 @@
 #include "node.h"
 #include "querybuilder.h"
 #include "termnodes.h"
-#include <vespa/searchlib/parsequery/stackdumpiterator.h>
+#include "weighted_string_term_vector.h"
+
 #include <vespa/searchlib/common/geo_location_parser.h>
-#include <vespa/vespalib/util/stringfmt.h>
+#include <vespa/searchlib/parsequery/stackdumpiterator.h>
 #include <vespa/vespalib/util/issue.h>
+#include <vespa/vespalib/util/stringfmt.h>
+
 #include <charconv>
 
 namespace search::query {
 
 class StackDumpQueryCreatorHelper {
 public:
-    static void populateMultiTerm(SimpleQueryStackDumpIterator &queryStack, QueryBuilderBase & builder, MultiTerm & mt);
-    static void reportError(const SimpleQueryStackDumpIterator &queryStack, const QueryBuilderBase & builder);
+    static void populateMultiTerm(QueryStackIterator& queryStack, QueryBuilderBase& builder, MultiTerm& mt);
+    static void reportError(const QueryStackIterator& queryStack, const QueryBuilderBase& builder);
 };
 
 /**
  * Creates a query tree from a stack dump.
  */
-template <class NodeTypes>
-class StackDumpQueryCreator {
+template <class NodeTypes> class StackDumpQueryCreator {
 public:
-    static Node::UP create(search::SimpleQueryStackDumpIterator &queryStack)
-    {
+    static Node::UP create(search::QueryStackIterator& queryStack) {
         QueryBuilder<NodeTypes> builder;
 
         // Make sure that the life time of what pureTermView refers to exceeds that of pureTermView.
-        // Especially make sure that do not create any stack local objects like vespalib::string
+        // Especially make sure that do not create any stack local objects like std::string
         // with smaller scope, that you refer with pureTermView.
-        vespalib::string pureTermView;
+        std::string pureTermView;
         while (!builder.hasError() && queryStack.next()) {
-            Term *t = createQueryTerm(queryStack, builder, pureTermView);
+            Term* t = createQueryTerm(queryStack, builder, pureTermView);
             if (!builder.hasError() && t) {
                 if (queryStack.hasNoRankFlag()) {
                     t->setRanked(false);
@@ -54,97 +55,114 @@ public:
     }
 
 private:
-    static void populateMultiTerm(search::SimpleQueryStackDumpIterator &queryStack, QueryBuilderBase & builder, MultiTerm & mt) {
+    static void populateMultiTerm(search::QueryStackIterator& queryStack, QueryBuilderBase& builder, MultiTerm& mt) {
         StackDumpQueryCreatorHelper::populateMultiTerm(queryStack, builder, mt);
     }
-    static Term *
-    createQueryTerm(search::SimpleQueryStackDumpIterator &queryStack, QueryBuilder<NodeTypes> & builder, vespalib::string & pureTermView) {
-        uint32_t arity = queryStack.getArity();
+    static Term* createQueryTerm(search::QueryStackIterator& queryStack, QueryBuilder<NodeTypes>& builder,
+                                 std::string& pureTermView) {
+        uint32_t            arity = queryStack.getArity();
         ParseItem::ItemType type = queryStack.getType();
-        Node::UP node;
-        Term *t = nullptr;
+        Node::UP            node;
+        Term*               t = nullptr;
         if (type == ParseItem::ITEM_AND) {
             builder.addAnd(arity);
         } else if (type == ParseItem::ITEM_RANK) {
             builder.addRank(arity);
+        } else if (type == ParseItem::ITEM_LABEL_WRAPPER) {
+            builder.add_label_wrapper(queryStack.getUniqueId(), queryStack.get_label_score());
         } else if (type == ParseItem::ITEM_OR) {
             builder.addOr(arity);
         } else if (type == ParseItem::ITEM_WORD_ALTERNATIVES) {
             std::string_view view = queryStack.index_as_view();
-            int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
-            builder.addEquiv(arity, id, weight);
-            pureTermView = view;
+            int32_t          id = queryStack.getUniqueId();
+            Weight           weight = queryStack.GetWeight();
+            auto             words = std::make_unique<WeightedStringTermVector>(arity);
+            for (uint32_t idx = 0; idx < arity; idx++) {
+                if (queryStack.next() && queryStack.getType() == ParseItem::ITEM_PURE_WEIGHTED_STRING) {
+                    words->addTerm(queryStack.getTerm(), queryStack.GetWeight());
+                } else {
+                    vespalib::Issue::report("query builder: invalid WORD_ALTERNATIVES item");
+                    return nullptr;
+                }
+            }
+            t = &builder.add_word_alternatives(std::move(words), std::string(view), id, weight);
         } else if (type == ParseItem::ITEM_WEAK_AND) {
             uint32_t targetNumHits = queryStack.getTargetHits();
             builder.addWeakAnd(arity, targetNumHits, queryStack.index_as_string());
             pureTermView = queryStack.index_as_view();
         } else if (type == ParseItem::ITEM_EQUIV) {
             int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
+            Weight  weight = queryStack.GetWeight();
             builder.addEquiv(arity, id, weight);
         } else if (type == ParseItem::ITEM_NEAR) {
             uint32_t nearDistance = queryStack.getNearDistance();
-            builder.addNear(arity, nearDistance);
+            uint32_t negativeTerms = queryStack.getNegativeTerms();
+            uint32_t exclusionDistance = queryStack.getExclusionDistance();
+            builder.addNear(arity, nearDistance, negativeTerms, exclusionDistance);
         } else if (type == ParseItem::ITEM_ONEAR) {
             uint32_t nearDistance = queryStack.getNearDistance();
-            builder.addONear(arity, nearDistance);
+            uint32_t negativeTerms = queryStack.getNegativeTerms();
+            uint32_t exclusionDistance = queryStack.getExclusionDistance();
+            builder.addONear(arity, nearDistance, negativeTerms, exclusionDistance);
         } else if (type == ParseItem::ITEM_PHRASE) {
             int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
+            Weight  weight = queryStack.GetWeight();
             t = &builder.addPhrase(arity, queryStack.index_as_string(), id, weight);
             pureTermView = queryStack.index_as_view();
         } else if (type == ParseItem::ITEM_SAME_ELEMENT) {
             int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
+            Weight  weight = queryStack.GetWeight();
             builder.addSameElement(arity, queryStack.index_as_string(), id, weight);
             pureTermView = queryStack.index_as_view();
         } else if (type == ParseItem::ITEM_WEIGHTED_SET) {
             int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
-           auto & ws = builder.addWeightedSetTerm(arity, queryStack.index_as_string(), id, weight);
+            Weight  weight = queryStack.GetWeight();
+            auto&   ws = builder.addWeightedSetTerm(arity, queryStack.index_as_string(), id, weight);
             pureTermView = std::string_view();
             populateMultiTerm(queryStack, builder, ws);
             t = &ws;
         } else if (type == ParseItem::ITEM_DOT_PRODUCT) {
             int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
-            auto & dotProduct = builder.addDotProduct(arity, queryStack.index_as_string(), id, weight);
+            Weight  weight = queryStack.GetWeight();
+            auto&   dotProduct = builder.addDotProduct(arity, queryStack.index_as_string(), id, weight);
             pureTermView = std::string_view();
             populateMultiTerm(queryStack, builder, dotProduct);
             t = &dotProduct;
         } else if (type == ParseItem::ITEM_WAND) {
-            int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
+            int32_t  id = queryStack.getUniqueId();
+            Weight   weight = queryStack.GetWeight();
             uint32_t targetNumHits = queryStack.getTargetHits();
-            double scoreThreshold = queryStack.getScoreThreshold();
-            double thresholdBoostFactor = queryStack.getThresholdBoostFactor();
-            auto & wand = builder.addWandTerm(arity, queryStack.index_as_string(), id, weight, targetNumHits, scoreThreshold, thresholdBoostFactor);
+            double   scoreThreshold = queryStack.getScoreThreshold();
+            double   thresholdBoostFactor = queryStack.getThresholdBoostFactor();
+            auto&    wand = builder.addWandTerm(arity, queryStack.index_as_string(), id, weight, targetNumHits,
+                                                scoreThreshold, thresholdBoostFactor);
             pureTermView = std::string_view();
             populateMultiTerm(queryStack, builder, wand);
-            t = & wand;
+            t = &wand;
         } else if (type == ParseItem::ITEM_NOT) {
             builder.addAndNot(arity);
         } else if (type == ParseItem::ITEM_NEAREST_NEIGHBOR) {
             std::string_view query_tensor_name = queryStack.getTerm();
-            uint32_t target_num_hits = queryStack.getTargetHits();
-            int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
-            bool allow_approximate = queryStack.getAllowApproximate();
-            uint32_t explore_additional_hits = queryStack.getExploreAdditionalHits();
-            double distance_threshold = queryStack.getDistanceThreshold();
+            uint32_t         target_num_hits = queryStack.getTargetHits();
+            int32_t          id = queryStack.getUniqueId();
+            Weight           weight = queryStack.GetWeight();
+            bool             allow_approximate = queryStack.getAllowApproximate();
+            uint32_t         explore_additional_hits = queryStack.getExploreAdditionalHits();
+            double           distance_threshold = queryStack.getDistanceThreshold();
+            typename NodeTypes::NearestNeighborTerm::HnswParams hnsw_params;
+            hnsw_params.distance_threshold = distance_threshold;
+            hnsw_params.explore_additional_hits = explore_additional_hits;
             builder.add_nearest_neighbor_term(query_tensor_name, queryStack.index_as_string(), id, weight,
-                                              target_num_hits, allow_approximate, explore_additional_hits,
-                                              distance_threshold);
+                                              target_num_hits, allow_approximate, hnsw_params);
         } else if (type == ParseItem::ITEM_TRUE) {
             builder.add_true_node();
         } else if (type == ParseItem::ITEM_FALSE) {
             builder.add_false_node();
         } else {
-            vespalib::string term(queryStack.getTerm());
-            vespalib::string view = queryStack.index_as_string();
-            int32_t id = queryStack.getUniqueId();
-            Weight weight = queryStack.GetWeight();
+            std::string term(queryStack.getTerm());
+            std::string view = queryStack.index_as_string();
+            int32_t     id = queryStack.getUniqueId();
+            Weight      weight = queryStack.GetWeight();
 
             if (type == ParseItem::ITEM_TERM) {
                 t = &builder.addStringTerm(term, view, id, weight);
@@ -153,7 +171,7 @@ private:
             } else if (type == ParseItem::ITEM_PURE_WEIGHTED_LONG) {
                 char buf[24];
                 auto res = std::to_chars(buf, buf + sizeof(buf), queryStack.getIntegerTerm(), 10);
-                t = &builder.addNumberTerm(vespalib::string(buf, res.ptr - buf), pureTermView, id, weight);
+                t = &builder.addNumberTerm(std::string(buf, res.ptr - buf), pureTermView, id, weight);
             } else if (type == ParseItem::ITEM_PREFIXTERM) {
                 t = &builder.addPrefixTerm(term, view, id, weight);
             } else if (type == ParseItem::ITEM_SUBSTRINGTERM) {
@@ -164,14 +182,14 @@ private:
                 t = &builder.addSuffixTerm(term, view, id, weight);
             } else if (type == ParseItem::ITEM_GEO_LOCATION_TERM) {
                 search::common::GeoLocationParser parser;
-                if (! parser.parseNoField(term)) {
+                if (!parser.parseNoField(term)) {
                     vespalib::Issue::report("query builder: invalid geo location term '%s'", term.data());
                 }
                 Location loc(parser.getGeoLocation());
                 t = &builder.addLocationTerm(loc, view, id, weight);
             } else if (type == ParseItem::ITEM_NUMTERM) {
                 if (Term::isPossibleRangeTerm(term)) {
-                    Range range({vespalib::string(term)});
+                    Range range({std::string(term)});
                     t = &builder.addRangeTerm(range, view, id, weight);
                 } else {
                     t = &builder.addNumberTerm(term, view, id, weight);
@@ -181,20 +199,24 @@ private:
             } else if (type == ParseItem::ITEM_REGEXP) {
                 t = &builder.addRegExpTerm(term, view, id, weight);
             } else if (type == ParseItem::ITEM_FUZZY) {
-                uint32_t max_edit_distance  = queryStack.fuzzy_max_edit_distance();
+                uint32_t max_edit_distance = queryStack.fuzzy_max_edit_distance();
                 uint32_t prefix_lock_length = queryStack.fuzzy_prefix_lock_length();
-                bool     prefix_match       = queryStack.has_prefix_match_semantics();
-                t = &builder.addFuzzyTerm(term, view, id, weight, max_edit_distance, prefix_lock_length, prefix_match);
+                bool     prefix_match = queryStack.has_prefix_match_semantics();
+                t = &builder.addFuzzyTerm(term, view, id, weight, max_edit_distance, prefix_lock_length,
+                                          prefix_match);
             } else if (type == ParseItem::ITEM_STRING_IN) {
                 t = &builder.add_in_term(queryStack.get_terms(), MultiTerm::Type::STRING, view, id, weight);
             } else if (type == ParseItem::ITEM_NUMERIC_IN) {
                 t = &builder.add_in_term(queryStack.get_terms(), MultiTerm::Type::INTEGER, view, id, weight);
+            } else if (type == ParseItem::ITEM_STRING_RANGE_TERM) {
+                t = &builder.add_string_range_term(StringRange(queryStack.get_string_range_spec()), view, id, weight);
             } else {
-                vespalib::Issue::report("query builder: Unable to create query tree from stack dump. node type = %d.", type);
+                vespalib::Issue::report("query builder: Unable to create query tree from stack dump. node type = %d.",
+                                        type);
             }
         }
         return t;
     }
 };
 
-}
+} // namespace search::query

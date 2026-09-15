@@ -9,7 +9,10 @@ import org.junit.Test;
 
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerify;
 import static com.yahoo.vespa.indexinglanguage.expressions.ExpressionAssert.assertVerifyThrows;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 /**
  * @author Simon Thoresen Hult
@@ -37,17 +40,17 @@ public class ParenthesisTestCase {
     public void requireThatExpressionCanBeVerified() {
         Expression exp = new ParenthesisExpression(SimpleExpression.newConversion(DataType.INT, DataType.STRING));
         assertVerify(DataType.INT, exp, DataType.STRING);
-        assertVerifyThrows(null, exp, "Expected int input, but no input is specified");
-        assertVerifyThrows(DataType.STRING, exp, "Expected int input, got string");
+        assertVerifyThrows("Invalid expression 'SimpleExpression': Expected int input, but no input is provided", null, exp);
+        assertVerifyThrows("Invalid expression '(SimpleExpression)': int is incompatible with string", DataType.STRING, exp);
     }
 
     @Test
     public void requireThatNestedExpressionIsRun() {
         ExecutionContext ctx = new ExecutionContext(new SimpleTestAdapter(new Field("in", DataType.STRING)));
-        ctx.setOutputValue(null, "in", new StringFieldValue("69"));
+        ctx.setFieldValue("in", new StringFieldValue("69"), null);
         new ParenthesisExpression(new InputExpression("in")).execute(ctx);
 
-        assertTrue(ctx.getValue() instanceof StringFieldValue);
-        assertEquals("69", ((StringFieldValue)ctx.getValue()).getString());
+        assertTrue(ctx.getCurrentValue() instanceof StringFieldValue);
+        assertEquals("69", ((StringFieldValue)ctx.getCurrentValue()).getString());
     }
 }

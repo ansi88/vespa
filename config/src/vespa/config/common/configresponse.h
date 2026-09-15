@@ -1,8 +1,8 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <memory>
+#include <string>
 
 namespace config {
 
@@ -18,11 +18,11 @@ class ConfigResponse {
 public:
     virtual ~ConfigResponse() = default;
 
-    virtual const ConfigKey & getKey() const = 0;
-    virtual const ConfigValue & getValue() const = 0;
+    virtual const ConfigKey& getKey() const = 0;
+    virtual const ConfigValue& getValue() const = 0;
 
-    virtual const ConfigState & getConfigState() const = 0;
-    virtual const Trace & getTrace() const = 0;
+    virtual const ConfigState& getConfigState() const = 0;
+    virtual const Trace& getTrace() const = 0;
 
     virtual bool hasValidResponse() const = 0;
 
@@ -43,11 +43,11 @@ public:
     virtual void fill() = 0;
 
     /** @return Error message if a request has failed, null otherwise. */
-    virtual vespalib::string errorMessage() const = 0;
+    virtual std::string errorMessage() const = 0;
 
     virtual int errorCode() const = 0;
 
     virtual bool isError() const = 0;
 };
 
-}
+} // namespace config

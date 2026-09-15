@@ -32,6 +32,7 @@ import java.util.Set;
 // Query.prepare is done at the same time as canonicalization (by GroupingExecutor), so use that constraint.
 // (we're not adding another constraint at this point because all this preparation and encoding business
 // should be fixed when we move to Slime for serialization. - Jon, in the spring of the year of 2014)
+@SuppressWarnings("removal")
 @Before(QueryCanonicalizer.queryCanonicalization)
 
 // We are checking if there is a grouping expression, not if there is a raw grouping instruction property,
@@ -58,7 +59,10 @@ public class SortingDegrader extends Searcher {
         if ( ! query.getSelect().getGrouping().isEmpty()) return false;
         if ( ! query.properties().getBoolean(DEGRADING, true)) return false;
 
-        Index index = indexFacts.getIndex(query.getRanking().getSorting().fieldOrders().get(0).getFieldName());
+        Sorting.FieldOrder primarySort = query.getRanking().getSorting().fieldOrders().get(0); // ensured above
+        if (primarySort.getSorter() instanceof Sorting.FeatureSorter) return false;
+
+        Index index = indexFacts.getIndex(primarySort.getFieldName());
         if (index == null) return false;
         if ( ! index.isFastSearch()) return false;
         if ( ! index.isNumerical()) return false;

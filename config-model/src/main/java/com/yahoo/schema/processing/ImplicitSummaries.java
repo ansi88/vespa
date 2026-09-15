@@ -54,7 +54,7 @@ public class ImplicitSummaries extends Processor {
         String fieldName = field.getName();
         SummaryField fieldSummaryField = field.getSummaryField(fieldName);
         if (fieldSummaryField == null && field.doesSummarying()) {
-            fieldSummaryField = new SummaryField(fieldName, field.getDataType());
+            fieldSummaryField = new SummaryField(fieldName, field.getDataType(), field);
             fieldSummaryField.setImplicit(true);
             addSummaryFieldSources(fieldSummaryField, field);
             fieldSummaryField.addDestination("default");
@@ -84,23 +84,6 @@ public class ImplicitSummaries extends Processor {
 
         if (addedSummaryField != null && isComplexFieldWithOnlyStructFieldAttributes(field)) {
             addedSummaryField.setTransform(SummaryTransform.ATTRIBUTECOMBINER);
-        }
-
-        // Position attributes
-        if (field.doesSummarying()) {
-            for (Attribute attribute : field.getAttributes().values()) {
-                if ( ! attribute.isPosition()) continue;
-                var distField = field.getSummaryField(AdjustPositionSummaryFields.getDistanceSummaryFieldName(fieldName));
-                if (distField != null) {
-                    DocumentSummary attributePrefetchSummary = getOrCreateAttributePrefetchSummary(schema);
-                    attributePrefetchSummary.add(distField);
-                }
-                var posField = field.getSummaryField(AdjustPositionSummaryFields.getPositionSummaryFieldName(fieldName));
-                if (posField != null) {
-                    DocumentSummary attributePrefetchSummary = getOrCreateAttributePrefetchSummary(schema);
-                    attributePrefetchSummary.add(posField);
-                }
-            }
         }
 
         // Explicits
@@ -139,7 +122,7 @@ public class ImplicitSummaries extends Processor {
         }
 
         DocumentSummary summary = getOrCreateAttributePrefetchSummary(schema);
-        SummaryField attributeSummaryField = new SummaryField(attribute.getName(), attribute.getDataType());
+        SummaryField attributeSummaryField = new SummaryField(attribute.getName(), attribute.getDataType(), summary);
         attributeSummaryField.addSource(attribute.getName());
         attributeSummaryField.addDestination(SORTABLE_ATTRIBUTES_SUMMARY_CLASS);
         attributeSummaryField.setTransform(SummaryTransform.ATTRIBUTE);
@@ -148,21 +131,6 @@ public class ImplicitSummaries extends Processor {
 
     // Returns whether this is valid. Warns if invalid and ignorable. Throws if not ignorable.
     private boolean isValid(SummaryField summaryField, Schema schema, boolean validate) {
-        if (summaryField.getTransform() == SummaryTransform.DISTANCE ||
-            summaryField.getTransform() == SummaryTransform.POSITIONS) {
-            int sourceCount = summaryField.getSourceCount();
-            if (validate && sourceCount != 1) {
-                throw newProcessException(schema.getName(), summaryField.getName(),
-                                          "Expected 1 source field, got " + sourceCount + ".");
-            }
-            String sourceName = summaryField.getSingleSource();
-            if (validate && schema.getAttribute(sourceName) == null) {
-                throw newProcessException(schema.getName(), summaryField.getName(),
-                                          "Summary source attribute '" + sourceName + "' not found.");
-            }
-            return true;
-        }
-
         String fieldName = summaryField.getSourceField();
         SDField sourceField = schema.getConcreteField(fieldName);
         if (validate && sourceField == null) {
@@ -195,7 +163,7 @@ public class ImplicitSummaries extends Processor {
                                  "to this attribute, remove any bolding and dynamic snippeting from this field");
                 // Note: The dynamic setting has already overridden the attribute map setting,
                 // so we do not need to actually do attribute.setSummary(false) here
-                // Also, we can not do this, since it makes it impossible to fetch this attribute
+                // Also, we cannot do this, since it makes it impossible to fetch this attribute
                 // in another summary
             }
         }

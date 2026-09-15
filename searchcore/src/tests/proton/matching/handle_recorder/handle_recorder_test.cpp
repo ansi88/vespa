@@ -8,8 +8,8 @@
 
 LOG_SETUP("handle_recorder_test");
 
-using search::fef::MatchDataDetails;
 using search::fef::MatchData;
+using search::fef::MatchDataDetails;
 using search::fef::TermFieldHandle;
 using search::fef::TermFieldMatchData;
 using namespace proton::matching;
@@ -18,22 +18,18 @@ using HandleMap = HandleRecorder::HandleMap;
 
 constexpr MatchDataDetails NormalMask = MatchDataDetails::Normal;
 constexpr MatchDataDetails InterleavedMask = MatchDataDetails::Interleaved;
-constexpr MatchDataDetails BothMask = static_cast<MatchDataDetails>(static_cast<int>(NormalMask) | static_cast<int>(InterleavedMask));
+constexpr MatchDataDetails BothMask =
+    static_cast<MatchDataDetails>(static_cast<int>(NormalMask) | static_cast<int>(InterleavedMask));
 
-void
-register_normal_handle(TermFieldHandle handle)
-{
+void register_normal_handle(TermFieldHandle handle) {
     HandleRecorder::register_handle(handle, MatchDataDetails::Normal);
 }
 
-void
-register_interleaved_features_handle(TermFieldHandle handle)
-{
+void register_interleaved_features_handle(TermFieldHandle handle) {
     HandleRecorder::register_handle(handle, MatchDataDetails::Interleaved);
 }
 
-TEST(HandleRecorderTest, can_record_both_normal_and_interleaved_features_handles)
-{
+TEST(HandleRecorderTest, can_record_both_normal_and_interleaved_features_handles) {
     HandleRecorder recorder;
     {
         HandleRecorder::Binder binder(recorder);
@@ -45,8 +41,7 @@ TEST(HandleRecorderTest, can_record_both_normal_and_interleaved_features_handles
     EXPECT_EQ("normal: [3,7], interleaved: [5]", recorder.to_string());
 }
 
-TEST(HandleRecorderTest, the_same_handle_can_be_in_both_normal_and_cheap_set)
-{
+TEST(HandleRecorderTest, the_same_handle_can_be_in_both_normal_and_cheap_set) {
     HandleRecorder recorder;
     {
         HandleRecorder::Binder binder(recorder);
@@ -58,18 +53,16 @@ TEST(HandleRecorderTest, the_same_handle_can_be_in_both_normal_and_cheap_set)
 
 namespace {
 
-void check_tagging(const TermFieldMatchData &tfmd, bool exp_not_needed,
-                   bool exp_needs_normal_features, bool exp_needs_interleaved_features)
-{
+void check_tagging(const TermFieldMatchData& tfmd, bool exp_not_needed, bool exp_needs_normal_features,
+                   bool exp_needs_interleaved_features) {
     EXPECT_EQ(tfmd.isNotNeeded(), exp_not_needed);
     EXPECT_EQ(tfmd.needs_normal_features(), exp_needs_normal_features);
     EXPECT_EQ(tfmd.needs_interleaved_features(), exp_needs_interleaved_features);
 }
 
-}
+} // namespace
 
-TEST(HandleRecorderTest, tagging_of_matchdata_works)
-{
+TEST(HandleRecorderTest, tagging_of_matchdata_works) {
     HandleRecorder recorder;
     {
         HandleRecorder::Binder binder(recorder);
@@ -97,6 +90,25 @@ TEST(HandleRecorderTest, tagging_of_matchdata_works)
     check_tagging(*md->resolveTermField(1), false, true, false);
     check_tagging(*md->resolveTermField(2), true, false, false);
     check_tagging(*md->resolveTermField(3), false, false, true);
+}
+
+TEST(HandleRecorderTest, registration_attempted_is_set_even_for_already_present_handles) {
+    HandleRecorder recorder(HandleMap({{3, NormalMask}}));
+    EXPECT_FALSE(recorder.registration_attempted());
+    {
+        HandleRecorder::Binder binder(recorder);
+        register_normal_handle(3);
+    }
+    EXPECT_TRUE(recorder.registration_attempted());
+    EXPECT_EQ(HandleMap({{3, NormalMask}}), recorder.get_handles());
+}
+
+TEST(HandleRecorderTest, registration_attempted_stays_false_without_add) {
+    HandleRecorder recorder(HandleMap({{3, NormalMask}}));
+    {
+        HandleRecorder::Binder binder(recorder);
+    }
+    EXPECT_FALSE(recorder.registration_attempted());
 }
 
 GTEST_MAIN_RUN_ALL_TESTS()

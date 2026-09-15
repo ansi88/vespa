@@ -18,9 +18,10 @@
  */
 #pragma once
 
-#include <memory>
 #include <vespa/vespalib/util/time.h>
-#include <vespa/vespalib/stllike/string.h>
+
+#include <memory>
+#include <string>
 
 namespace storage::framework {
 
@@ -62,6 +63,7 @@ struct TickingLockGuard {
     };
     explicit TickingLockGuard(std::unique_ptr<Impl> impl) : _impl(std::move(impl)) {}
     void broadcast() { _impl->broadcast(); }
+
 private:
     std::unique_ptr<Impl> _impl;
 };
@@ -79,11 +81,8 @@ struct TickingThreadPool : public ThreadLock {
     using UP = std::unique_ptr<TickingThreadPool>;
 
     // TODO STRIPE: Change waitTime default to 100ms when legacy mode is removed.
-    static TickingThreadPool::UP createDefault(
-            std::string_view name,
-            vespalib::duration waitTime,
-            int ticksBeforeWait,
-            vespalib::duration maxProcessTime);
+    static TickingThreadPool::UP createDefault(std::string_view name, vespalib::duration waitTime,
+                                               int ticksBeforeWait, vespalib::duration maxProcessTime);
     static TickingThreadPool::UP createDefault(std::string_view name, vespalib::duration waitTime);
 
     ~TickingThreadPool() override = default;
@@ -93,7 +92,7 @@ struct TickingThreadPool : public ThreadLock {
     /** Start all the threads added. */
     virtual void start(ThreadPool& pool) = 0;
     virtual void stop() = 0;
-    virtual vespalib::string getStatus() = 0;
+    virtual std::string getStatus() = 0;
 };
 
-}
+} // namespace storage::framework

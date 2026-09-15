@@ -67,6 +67,17 @@ public class SchemaInfoTester {
                             .add(new RankProfile.Builder("inconsistent")
                                          .addInput("query(myTensor1)", InputType.fromSpec("tensor(a{},b{})"))
                                          .build())
+                            .add(new RankProfile.Builder("withParameters")
+                                         .setSecondPhase(new SecondPhase.Builder().setRerankCount(201).build())
+                                         .setKeepRankCount(401)
+                                         .setMatchPhase(new MatchPhase.Builder().setMaxHits(801).build())
+                                         .addSortFeature("foo")
+                                         .build())
+                            .add(new RankProfile.Builder("withTotalParameters")
+                                         .setSecondPhase(new SecondPhase.Builder().setTotalRerankCount(2001).build())
+                                         .setTotalKeepRankCount(4001)
+                                         .setMatchPhase(new MatchPhase.Builder().setTotalMaxHits(8001).build())
+                                         .build())
                             .add(new DocumentSummary.Builder("testSummary")
                                          .add(new DocumentSummary.Field("field1", "string"))
                                          .add(new DocumentSummary.Field("field2", "integer"))
@@ -105,12 +116,28 @@ public class SchemaInfoTester {
         schemaA.name("a");
 
         schemaA.field(new SchemaInfoConfig.Schema.Field.Builder().name("field1").type("string")
-                                                                 .index(true).attribute(false)
+                                                                 .index(true).attribute(false).bitPacked(false).fastMapSearch(false)
                                                                  .alias("alias1").alias("alias2"));
         schemaA.field(new SchemaInfoConfig.Schema.Field.Builder().name("field2").type("int")
-                                                                 .index(false).attribute(true));
+                                                                 .index(false).attribute(true).bitPacked(false).fastMapSearch(false));
 
         schemaA.rankprofile(rankProfileCommon);
+
+        var rankProfileWithParameters = new SchemaInfoConfig.Schema.Rankprofile.Builder();
+        rankProfileWithParameters.name("withParameters");
+        rankProfileWithParameters.rerankCount(201);
+        rankProfileWithParameters.keepRankCount(401);
+        rankProfileWithParameters.matchPhaseMaxHits(801);
+        rankProfileWithParameters.sortFeature("foo");
+        schemaA.rankprofile(rankProfileWithParameters);
+
+        var rankProfileWithTotalParameters = new SchemaInfoConfig.Schema.Rankprofile.Builder();
+        rankProfileWithTotalParameters.name("withTotalParameters");
+        rankProfileWithTotalParameters.totalRerankCount(2001);
+        rankProfileWithTotalParameters.totalKeepRankCount(4001);
+        rankProfileWithTotalParameters.totalMatchPhaseMaxHits(8001);
+        schemaA.rankprofile(rankProfileWithTotalParameters);
+
         var rankProfileInconsistentA = new SchemaInfoConfig.Schema.Rankprofile.Builder();
         rankProfileInconsistentA.name("inconsistent");
         rankProfileInconsistentA.input(new SchemaInfoConfig.Schema.Rankprofile.Input.Builder().name("query(myTensor1)").type("tensor(a{},b{})"));

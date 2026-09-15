@@ -15,40 +15,40 @@ public final class ToWsetExpression extends Expression {
     private final Boolean removeIfZero;
 
     public ToWsetExpression(boolean createIfNonExistent, boolean removeIfZero) {
-        super(UnresolvedDataType.INSTANCE);
         this.createIfNonExistent = createIfNonExistent;
         this.removeIfZero = removeIfZero;
     }
 
-    public boolean getCreateIfNonExistent() {
-        return createIfNonExistent;
+    public boolean getCreateIfNonExistent() { return createIfNonExistent; }
+
+    public boolean getRemoveIfZero() { return removeIfZero; }
+
+    @Override
+    public DataType setInputType(DataType input, TypeContext context) {
+        super.setInputType(input, context);
+        if (input == null) return null;
+        return outputType(input);
     }
 
-    public boolean getRemoveIfZero() {
-        return removeIfZero;
+    @Override
+    public DataType setOutputType(DataType output, TypeContext context) {
+        if ( ! (output instanceof WeightedSetDataType))
+            throw new VerificationException(this, "This creates a WeightedSet, but type " + output.getName() + " is needed");
+        super.setOutputType(output, context);
+        return getInputType(context);
     }
 
     @SuppressWarnings({ "unchecked", "rawtypes" })
     @Override
     protected void doExecute(ExecutionContext context) {
-        FieldValue input = context.getValue();
-        DataType inputType = input.getDataType();
-
-        WeightedSetDataType outputType = DataType.getWeightedSet(inputType, createIfNonExistent, removeIfZero);
-        WeightedSet output = outputType.createFieldValue();
+        FieldValue input = context.getCurrentValue();
+        WeightedSet output = outputType(input.getDataType()).createFieldValue();
         output.add(input);
-
-        context.setValue(output);
+        context.setCurrentValue(output);
     }
 
-    @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(DataType.getWeightedSet(context.getValueType(), createIfNonExistent, removeIfZero));
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return UnresolvedDataType.INSTANCE;
+    private WeightedSetDataType outputType(DataType inputType) {
+        return DataType.getWeightedSet(inputType, createIfNonExistent, removeIfZero);
     }
 
     @Override
@@ -60,24 +60,16 @@ public final class ToWsetExpression extends Expression {
 
     @Override
     public boolean equals(Object obj) {
-        if (!(obj instanceof ToWsetExpression)) {
-            return false;
-        }
-        ToWsetExpression rhs = (ToWsetExpression)obj;
-        if (createIfNonExistent != rhs.createIfNonExistent) {
-            return false;
-        }
-        if (removeIfZero != rhs.removeIfZero) {
-            return false;
-        }
+        if (!(obj instanceof ToWsetExpression rhs)) return false;
+
+        if (createIfNonExistent != rhs.createIfNonExistent) return false;
+        if (removeIfZero != rhs.removeIfZero) return false;
         return true;
     }
 
     @Override
     public int hashCode() {
-        return getClass().hashCode() +
-               createIfNonExistent.hashCode() +
-               removeIfZero.hashCode();
+        return getClass().hashCode() + createIfNonExistent.hashCode() + removeIfZero.hashCode();
     }
 
 }

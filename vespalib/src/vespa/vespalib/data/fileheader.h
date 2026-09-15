@@ -2,6 +2,8 @@
 #pragma once
 
 #include <vespa/vespalib/util/exception.h>
+
+#include <cstdint>
 #include <map>
 
 class FastOS_FileInterface;
@@ -33,51 +35,46 @@ public:
      */
     class Tag {
     public:
-        enum Type {
-            TYPE_EMPTY   = 'e',
-            TYPE_FLOAT   = 'f',
-            TYPE_INTEGER = 'i',
-            TYPE_STRING  = 's'
-        };
+        enum Type { TYPE_EMPTY = 'e', TYPE_FLOAT = 'f', TYPE_INTEGER = 'i', TYPE_STRING = 's' };
 
     private:
-        Type             _type;
-        vespalib::string _name;
-        double           _fVal;
-        int64_t          _iVal;
-        vespalib::string _sVal;
+        Type        _type;
+        std::string _name;
+        double      _fVal;
+        int64_t     _iVal;
+        std::string _sVal;
 
     public:
         Tag();
-        Tag(const Tag &);
-        Tag & operator=(const Tag &);
-        Tag(const vespalib::string &name, float val);
-        Tag(const vespalib::string &name, double val);
-        Tag(const vespalib::string &name, int8_t val);
-        Tag(const vespalib::string &name, uint8_t val);
-        Tag(const vespalib::string &name, int16_t val);
-        Tag(const vespalib::string &name, uint16_t val);
-        Tag(const vespalib::string &name, int32_t val);
-        Tag(const vespalib::string &name, uint32_t val);
-        Tag(const vespalib::string &name, int64_t val);
-        Tag(const vespalib::string &name, uint64_t val);
-        Tag(const vespalib::string &name, bool val);
-        Tag(const vespalib::string &name, const char *val);
-        Tag(const vespalib::string &name, const vespalib::string &val);
+        Tag(const Tag&);
+        Tag& operator=(const Tag&);
+        Tag(const std::string& name, float val);
+        Tag(const std::string& name, double val);
+        Tag(const std::string& name, int8_t val);
+        Tag(const std::string& name, uint8_t val);
+        Tag(const std::string& name, int16_t val);
+        Tag(const std::string& name, uint16_t val);
+        Tag(const std::string& name, int32_t val);
+        Tag(const std::string& name, uint32_t val);
+        Tag(const std::string& name, int64_t val);
+        Tag(const std::string& name, uint64_t val);
+        Tag(const std::string& name, bool val);
+        Tag(const std::string& name, const char* val);
+        Tag(const std::string& name, const std::string& val);
         ~Tag();
 
-        size_t           read(DataBuffer &buf);
-        size_t           write(DataBuffer &buf) const;
-        size_t           getSize()   const;
+        size_t read(DataBuffer& buf);
+        size_t write(DataBuffer& buf) const;
+        size_t getSize() const;
 
-        bool               isEmpty()   const { return _type == TYPE_EMPTY; }
-        Type               getType()   const { return _type; }
-        const vespalib::string &getName()   const { return _name; }
+        bool isEmpty() const { return _type == TYPE_EMPTY; }
+        Type getType() const { return _type; }
+        const std::string& getName() const { return _name; }
 
-        double             asFloat()   const { return _fVal; }
-        int64_t            asInteger() const { return _iVal; }
-        const vespalib::string &asString()  const { return _sVal; }
-        bool               asBool()    const { return _iVal != 0; }
+        double asFloat() const { return _fVal; }
+        int64_t asInteger() const { return _iVal; }
+        const std::string& asString() const { return _sVal; }
+        bool asBool() const { return _iVal != 0; }
     };
 
     /**
@@ -88,7 +85,7 @@ public:
     class IDataReader {
     public:
         virtual ~IDataReader() = default;
-        virtual size_t getData(char *buf, size_t len) = 0;
+        virtual size_t getData(char* buf, size_t len) = 0;
     };
 
     /**
@@ -99,7 +96,7 @@ public:
     class IDataWriter {
     public:
         virtual ~IDataWriter() = default;
-        virtual size_t putData(const char *buf, size_t len) = 0;
+        virtual size_t putData(const char* buf, size_t len) = 0;
     };
 
     /**
@@ -108,11 +105,11 @@ public:
      */
     class BufferReader : public IDataReader {
     private:
-        DataBuffer &_buf;
+        DataBuffer& _buf;
 
     public:
-        explicit BufferReader(DataBuffer &buf);
-        size_t getData(char *buf, size_t len) override;
+        explicit BufferReader(DataBuffer& buf);
+        size_t getData(char* buf, size_t len) override;
     };
 
     /**
@@ -121,26 +118,26 @@ public:
      */
     class BufferWriter : public IDataWriter {
     private:
-        DataBuffer &_buf;
+        DataBuffer& _buf;
 
     public:
-        explicit BufferWriter(DataBuffer &buf);
-        size_t putData(const char *buf, size_t len) override;
+        explicit BufferWriter(DataBuffer& buf);
+        size_t putData(const char* buf, size_t len) override;
     };
 
-    class MMapReader : public IDataReader
-    {
-        const char *_buf;
+    class MMapReader : public IDataReader {
+        const char* _buf;
         size_t      _sz;
+
     public:
-        MMapReader(const char *buf, size_t sz);
-        size_t getData(char *buf, size_t len) override;
+        MMapReader(const char* buf, size_t sz);
+        size_t getData(char* buf, size_t len) override;
     };
 
 private:
     static const Tag EMPTY;
 
-    using TagMap = std::map<vespalib::string, Tag>;
+    using TagMap = std::map<std::string, Tag>;
     TagMap _tags;
 
 public:
@@ -162,7 +159,7 @@ public:
      * @param idx The index of the tag to return.
      * @return The tag at the given index.
      */
-    const Tag &getTag(size_t idx) const;
+    const Tag& getTag(size_t idx) const;
 
     /**
      * Returns a reference to the named tag. If hasTag() returned false for the same key, this method returns
@@ -171,7 +168,7 @@ public:
      * @param key The name of the tag to return.
      * @return A reference to the named tag.
      */
-    const Tag &getTag(const vespalib::string &key) const;
+    const Tag& getTag(const std::string& key) const;
 
     /**
      * Returns whether or not there exists a tag with the given name.
@@ -179,7 +176,7 @@ public:
      * @param key The name of the tag to look for.
      * @return True if the named tag exists.
      */
-    bool hasTag(const vespalib::string &key) const;
+    bool hasTag(const std::string& key) const;
 
     /**
      * Adds the given tag to this header. If a tag already exists with the given name, this method replaces
@@ -188,7 +185,7 @@ public:
      * @param tag The tag to add.
      * @return True if no tag was overwritten.
      */
-    bool putTag(const Tag &tag);
+    bool putTag(const Tag& tag);
 
     /**
      * Removes a named tag. If no tag exists with the given name, this method returns false.
@@ -196,7 +193,7 @@ public:
      * @param key The name of the tag to remove.
      * @return True if a tag was removed.
      */
-    bool removeTag(const vespalib::string &key);
+    bool removeTag(const std::string& key);
 
     /**
      * Returns whether or not this header contains any data. The current implementation only checks for tags,
@@ -215,7 +212,7 @@ public:
      */
     virtual size_t getSize() const;
 
-    static size_t readSize(IDataReader &reader);
+    static size_t readSize(IDataReader& reader);
 
     /**
      * Deserializes header content from the given provider into this.
@@ -223,7 +220,7 @@ public:
      * @param reader The provider to read from.
      * @return The number of bytes read.
      */
-    size_t read(IDataReader &reader);
+    size_t read(IDataReader& reader);
 
     /**
      * Serializes the content of this into the given consumer.
@@ -231,7 +228,7 @@ public:
      * @param writer The consumer to write to.
      * @return The number of bytes written.
      */
-    size_t write(IDataWriter &writer) const;
+    size_t write(IDataWriter& writer) const;
 };
 
 /**
@@ -246,11 +243,11 @@ public:
      */
     class FileReader : public IDataReader {
     private:
-        FastOS_FileInterface &_file;
+        FastOS_FileInterface& _file;
 
     public:
-        explicit FileReader(FastOS_FileInterface &file);
-        size_t getData(char *buf, size_t len) override;
+        explicit FileReader(FastOS_FileInterface& file);
+        size_t getData(char* buf, size_t len) override;
     };
 
     /**
@@ -259,11 +256,11 @@ public:
      */
     class FileWriter : public IDataWriter {
     private:
-        FastOS_FileInterface &_file;
+        FastOS_FileInterface& _file;
 
     public:
-        explicit FileWriter(FastOS_FileInterface &file);
-        size_t putData(const char *buf, size_t len) override;
+        explicit FileWriter(FastOS_FileInterface& file);
+        size_t putData(const char* buf, size_t len) override;
     };
 
 private:
@@ -298,7 +295,7 @@ public:
      * @param file The file to read from.
      * @return The number of bytes read.
      */
-    size_t readFile(FastOS_FileInterface &file);
+    size_t readFile(FastOS_FileInterface& file);
 
     /**
      * Serializes the content of this into the given file. This requires that the file is open in write mode,
@@ -307,7 +304,7 @@ public:
      * @param file The file to write to.
      * @return The number of bytes written.
      */
-    size_t writeFile(FastOS_FileInterface &file) const;
+    size_t writeFile(FastOS_FileInterface& file) const;
 
     /**
      * Serializes the content of this into the given file. This requires that the file is open in read-write
@@ -317,7 +314,7 @@ public:
      * @param file The file to write to.
      * @return The number of bytes written.
      */
-    size_t rewriteFile(FastOS_FileInterface &file);
+    size_t rewriteFile(FastOS_FileInterface& file);
 };
 
 /**
@@ -325,7 +322,6 @@ public:
  * the tag, not its name or type. Without this operator you would have to switch on tag type to decide which
  * value accessor to use.
  */
-vespalib::asciistream &operator<<(vespalib::asciistream &out, const GenericHeader::Tag &tag);
+vespalib::asciistream& operator<<(vespalib::asciistream& out, const GenericHeader::Tag& tag);
 
-} // namespace
-
+} // namespace vespalib

@@ -6,26 +6,22 @@ namespace vespalib {
 
 namespace {
 
-void
-normalize_class_name_helper(vespalib::string& class_name, const vespalib::string& old, const vespalib::string& replacement)
-{
+void normalize_class_name_helper(std::string& class_name, const std::string& old, const std::string& replacement) {
     for (;;) {
         auto pos = class_name.find(old);
-        if (pos == vespalib::string::npos) {
+        if (pos == std::string::npos) {
             break;
         }
         class_name.replace(pos, old.size(), replacement);
     }
 }
 
-}
+} // namespace
 
-vespalib::string
-normalize_class_name(vespalib::string class_name)
-{
+std::string normalize_class_name(std::string class_name) {
     normalize_class_name_helper(class_name, "long long", "long");
     normalize_class_name_helper(class_name, ">>", "> >");
     return class_name;
 }
 
-}
+} // namespace vespalib

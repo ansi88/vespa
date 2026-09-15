@@ -8,7 +8,10 @@ import org.junit.jupiter.api.Test;
 
 import static com.yahoo.schema.ApplicationBuilder.createFromString;
 import static com.yahoo.config.model.test.TestUtil.joinLines;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * @author geirst
@@ -58,7 +61,7 @@ public class TensorFieldTestCase {
             fail("Expected exception");
         }
         catch (IllegalArgumentException e) {
-            assertEquals("The attribute 'f1' (tensor(x[3])) does not support 'fast-rank'. Only supported for tensor types with at least one mapped dimension", e.getMessage());
+            assertEquals("attribute 'f1' (tensor(x[3])) does not support 'fast-rank'. Only supported for tensor types with at least one mapped dimension", e.getMessage());
         }
     }
 
@@ -89,6 +92,13 @@ public class TensorFieldTestCase {
     void tensor_with_one_mapped_and_one_indexed_dimension_can_have_hnsw_index() throws ParseException {
         assertHnswIndexParams("tensor(x{},y[64])", "", 16, 200);
         assertHnswIndexParams("tensor(x[64],y{})", "", 16, 200);
+    }
+
+    @Test
+    void tensor_with_two_mapped_and_one_indexed_dimension_can_have_hnsw_index() throws ParseException {
+        assertHnswIndexParams("tensor(x{},y{},z[64])", "", 16, 200);
+        assertHnswIndexParams("tensor(x{},y[64],z{})", "", 16, 200);
+        assertHnswIndexParams("tensor(x[64],y{},z{})", "", 16, 200);
     }
 
     @Test

@@ -1,16 +1,11 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.schema;
 
-import com.yahoo.api.annotations.Beta;
-
-import java.util.Set;
-
 /**
  * Information about a field or field set.
  *
  * @author bratseth
  */
-@Beta
 public interface FieldInfo {
 
     /** Returns the name of this field or field set. */
@@ -23,5 +18,8 @@ public interface FieldInfo {
 
     /** Returns whether this field is index(es), i.e. does indexing: index. */
     boolean isIndex();
+
+    /** Returns whether this field has fast map search enabled, i.e. does map: fast-search. */
+    boolean hasFastMapSearch();
 
 }

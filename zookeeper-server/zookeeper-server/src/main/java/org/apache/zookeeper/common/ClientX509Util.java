@@ -41,7 +41,7 @@ import java.util.List;
  *
  * @author jonmv
  */
-public class ClientX509Util extends X509Util {
+public final class ClientX509Util extends X509Util {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClientX509Util.class);
 
@@ -55,6 +55,11 @@ public class ClientX509Util extends X509Util {
 
     @Override
     protected boolean shouldVerifyClientHostname() {
+        return false;
+    }
+
+    @Override
+    protected boolean shouldAllowReverseDnsLookup() {
         return false;
     }
 
@@ -224,7 +229,8 @@ public class ClientX509Util extends X509Util {
         } else {
             return createTrustManager(trustStoreLocation, trustStorePassword, trustStoreType,
                                       sslCrlEnabled, sslOcspEnabled, sslServerHostnameVerificationEnabled,
-                                      sslClientHostnameVerificationEnabled, getFipsMode(config));
+                                      sslClientHostnameVerificationEnabled, allowReverseDnsLookup(config),
+                                      getFipsMode(config));
         }
     }
 }

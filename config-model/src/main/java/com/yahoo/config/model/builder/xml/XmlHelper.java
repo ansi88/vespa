@@ -55,9 +55,9 @@ public final class XmlHelper {
      */
     public static String getIdString(Element element) {
         String idString = element.getAttribute("id");
-        if (idString == null || idString.trim().equals(""))
+        if (idString.trim().isEmpty())
             idString = element.getAttribute(idReference);
-        if (idString == null || idString.trim().equals(""))
+        if (idString.trim().isEmpty())
             idString = element.getAttribute("ident");
         return idString;
     }
@@ -119,7 +119,7 @@ public final class XmlHelper {
     /**
      * Creates a new XML document builder.
      *
-     * @return A new DocumentBuilder instance, or null if we fail to get one.
+     * @return a new DocumentBuilder instance, or null if we fail to get one.
      */
     public static synchronized DocumentBuilder getDocumentBuilder() {
         try {
@@ -184,7 +184,9 @@ public final class XmlHelper {
         factory.setXIncludeAware(false);
 
         try {
-            // XXE prevention
+            // Prevent XXE and internal-entity expansion by disallowing DOCTYPE (matches com.yahoo.text.XML and SchemaValidator)
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            // The external-entity/DTD features below are redundant once DOCTYPE is disallowed, but kept as defense in depth.
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
             factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
@@ -194,4 +196,5 @@ public final class XmlHelper {
             throw new RuntimeException(e);
         }
     }
+
 }

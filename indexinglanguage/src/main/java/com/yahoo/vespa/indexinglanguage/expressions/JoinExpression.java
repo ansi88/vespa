@@ -18,21 +18,32 @@ public final class JoinExpression extends Expression {
     private final String delimiter;
 
     public JoinExpression(String delimiter) {
-        super(UnresolvedDataType.INSTANCE);
         this.delimiter = delimiter;
     }
 
-    public String getDelimiter() {
-        return delimiter;
+    public String getDelimiter() { return delimiter; }
+
+    @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
+        if (inputType == null) return null;
+        if ( ! (inputType instanceof ArrayDataType))
+            throw new VerificationException(this, "Expected Array input, got type " + inputType.getName());
+        return DataType.STRING;
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(DataType.STRING, outputType, null, context);
+        return getInputType(context); // Cannot deduce since any array type is accepted
     }
 
     @SuppressWarnings({ "unchecked" })
     @Override
     protected void doExecute(ExecutionContext context) {
-        FieldValue input = context.getValue();
-        if (!(input instanceof Array)) {
+        FieldValue input = context.getCurrentValue();
+        if (!(input instanceof Array))
             throw new IllegalArgumentException("Expected Array input, got " + input.getDataType().getName());
-        }
         StringBuilder output = new StringBuilder();
         for (Iterator<FieldValue> it = ((Array)input).fieldValueIterator(); it.hasNext(); ) {
             output.append(it.next());
@@ -40,21 +51,7 @@ public final class JoinExpression extends Expression {
                 output.append(delimiter);
             }
         }
-        context.setValue(new StringFieldValue(output.toString()));
-    }
-
-    @Override
-    protected void doVerify(VerificationContext context) {
-        DataType input = context.getValueType();
-        if (!(input instanceof ArrayDataType)) {
-            throw new VerificationException(this, "Expected Array input, got " + input.getName());
-        }
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return DataType.STRING;
+        context.setCurrentValue(new StringFieldValue(output.toString()));
     }
 
     @Override

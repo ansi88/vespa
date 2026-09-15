@@ -16,6 +16,13 @@ public interface RpcConnectionPool extends AutoCloseable {
     /** Returns a connection to the given node id. */
     Client.NodeConnection getConnection(int nodeId);
 
+    /**
+     * Returns an immutable view of the current node set, for use by a single generation of invokers.
+     * Resolving connections through such a view keeps nodes removed by a later node set update
+     * resolvable until the generation's queries have drained, while the underlying connections
+     * are kept open by the delayed close of updateNodes.
+     */
+    default RpcConnectionPool snapshot() { return this; }
 
     /** Will return a list of items that need a delayed close when updating node set. */
     default Collection<? extends AutoCloseable> updateNodes(DispatchNodesConfig nodesConfig) { return List.of(); }
@@ -23,5 +30,7 @@ public interface RpcConnectionPool extends AutoCloseable {
     /** Shuts down all connections in the pool, and the underlying RPC client. */
     @Override
     void close();
+
+    default Collection<Integer> knownNodeIds() { return List.of(); }
 
 }

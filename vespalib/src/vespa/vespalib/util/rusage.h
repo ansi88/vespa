@@ -1,9 +1,11 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <vespa/vespalib/util/time.h>
+
 #include <sys/resource.h>
+
+#include <string>
 
 namespace vespalib {
 
@@ -26,14 +28,14 @@ public:
     /**
      * Will create an RUsage and initialize member with RUSAGE_CHILDREN
      **/
-    vespalib::string toString();
-    RUsage & operator -= (const RUsage & rhs);
+    std::string toString();
+    RUsage& operator-=(const RUsage& rhs);
+
 private:
     vespalib::duration _time;
 };
 
-RUsage operator -(const RUsage & a, const RUsage & b);
-timeval operator -(const timeval & a, const timeval & b);
+RUsage operator-(const RUsage& a, const RUsage& b);
+timeval operator-(const timeval& a, const timeval& b);
 
-}
-
+} // namespace vespalib

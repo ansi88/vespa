@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <memory>
+#include <string>
 
 namespace search::docsummary {
 
@@ -13,12 +13,11 @@ class IQueryTermFilter;
  * Interface class for creating an instance of IQueryTermFilter for a
  * specific input field.
  */
-class IQueryTermFilterFactory
-{
+class IQueryTermFilterFactory {
 public:
     virtual ~IQueryTermFilterFactory() = default;
 
     virtual std::shared_ptr<const IQueryTermFilter> make(std::string_view input_field) const = 0;
 };
 
-}
+} // namespace search::docsummary

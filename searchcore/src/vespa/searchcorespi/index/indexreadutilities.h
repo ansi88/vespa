@@ -2,8 +2,10 @@
 #pragma once
 
 #include "fusionspec.h"
+
 #include <vespa/searchlib/common/serialnum.h>
-#include <vespa/vespalib/stllike/string.h>
+
+#include <string>
 
 namespace searchcorespi {
 namespace index {
@@ -13,11 +15,9 @@ namespace index {
  * Used by the index maintainer.
  */
 struct IndexReadUtilities {
-    static FusionSpec readFusionSpec(const vespalib::string &baseDir);
-    static search::SerialNum readSerialNum(const vespalib::string &dir);
+    static FusionSpec readFusionSpec(const std::string& baseDir);
+    static search::SerialNum readSerialNum(const std::string& dir);
 };
 
 } // namespace index
 } // namespace searchcorespi
-
-

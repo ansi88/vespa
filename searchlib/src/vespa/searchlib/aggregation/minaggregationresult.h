@@ -2,24 +2,35 @@
 #pragma once
 
 #include "aggregationresult.h"
+
 #include <vespa/searchlib/expression/singleresultnode.h>
 
 namespace search::aggregation {
 
-class MinAggregationResult : public AggregationResult
-{
+/**
+ * Aggregator that keeps the minimum value.
+ */
+class MinAggregationResult : public AggregationResult {
 public:
     using SingleResultNode = expression::SingleResultNode;
-    DECLARE_AGGREGATIONRESULT(MinAggregationResult);
-    void visitMembers(vespalib::ObjectVisitor &visitor) const override;
-    const SingleResultNode & getMin() const { return *_min; }
-    MinAggregationResult();
-    MinAggregationResult(const ResultNode::CP &result);
-    ~MinAggregationResult();
+
 private:
-    const ResultNode & onGetRank() const override { return getMin(); }
-    void onPrepare(const ResultNode & result, bool useForInit) override;
     SingleResultNode::CP _min;
+
+public:
+    DECLARE_AGGREGATIONRESULT(MinAggregationResult);
+
+    MinAggregationResult();
+    explicit MinAggregationResult(const SingleResultNode& min);
+    ~MinAggregationResult() override;
+
+    void visitMembers(vespalib::ObjectVisitor& visitor) const override;
+    [[nodiscard]] const SingleResultNode& getMin() const { return *_min; }
+
+private:
+    [[nodiscard]] const ResultNode& onGetRank() const override { return getMin(); }
+    void onPrepare(const ResultNode& result) override;
+    void initForUnitTest(const ResultNode& result) override;
 };
 
-}
+} // namespace search::aggregation

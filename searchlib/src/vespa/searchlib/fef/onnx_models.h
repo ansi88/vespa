@@ -3,9 +3,11 @@
 #pragma once
 
 #include "onnx_model.h"
+
 #include <vespa/config-onnx-models.h>
-#include <vespa/vespalib/stllike/string.h>
+
 #include <map>
+#include <string>
 #include <vector>
 
 namespace search::fef {
@@ -21,21 +23,21 @@ public:
     using Vector = std::vector<Model>;
 
 private:
-    using Map = std::map<vespalib::string, Model>;
+    using Map = std::map<std::string, Model>;
     Map _models;
 
 public:
     OnnxModels();
     OnnxModels(Vector models);
-    OnnxModels(OnnxModels &&) noexcept;
-    OnnxModels & operator=(OnnxModels &&) = delete;
-    OnnxModels(const OnnxModels &) = delete;
-    OnnxModels & operator =(const OnnxModels &) = delete;
+    OnnxModels(OnnxModels&&) noexcept;
+    OnnxModels& operator=(OnnxModels&&) = delete;
+    OnnxModels(const OnnxModels&) = delete;
+    OnnxModels& operator=(const OnnxModels&) = delete;
     ~OnnxModels();
-    bool operator==(const OnnxModels &rhs) const;
-    [[nodiscard]] const Model *getModel(const vespalib::string &name) const;
+    bool operator==(const OnnxModels& rhs) const;
+    [[nodiscard]] const Model* getModel(const std::string& name) const;
     [[nodiscard]] size_t size() const { return _models.size(); }
-    static void configure(const ModelConfig &config, Model &model);
+    static void configure(const ModelConfig& config, Model& model);
 };
 
-}
+} // namespace search::fef

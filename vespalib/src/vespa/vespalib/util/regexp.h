@@ -1,15 +1,14 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib {
 
 /**
  * Utility class inspecting and generating regular expression strings.
  **/
-class RegexpUtil
-{
+class RegexpUtil {
 public:
     /**
      * Look at the given regular expression and identify the prefix
@@ -21,7 +20,7 @@ public:
      * @param re Regular expression.
      * @return prefix that must be present in matching strings
      **/
-    static vespalib::string get_prefix(std::string_view re);
+    static std::string get_prefix(std::string_view re);
 
     /**
      * Make a regexp matching strings with the given suffix.
@@ -29,7 +28,7 @@ public:
      * @param suffix the suffix
      * @return the regexp
      **/
-    static vespalib::string make_from_suffix(std::string_view suffix);
+    static std::string make_from_suffix(std::string_view suffix);
 
     /**
      * Make a regexp matching strings with the given substring.
@@ -37,7 +36,7 @@ public:
      * @param substring the substring
      * @return the regexp
      **/
-    static vespalib::string make_from_substring(std::string_view substring);
+    static std::string make_from_substring(std::string_view substring);
 };
 
 } // namespace vespalib

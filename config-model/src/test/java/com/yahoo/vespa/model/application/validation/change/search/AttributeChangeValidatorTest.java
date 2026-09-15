@@ -3,24 +3,42 @@ package com.yahoo.vespa.model.application.validation.change.search;
 
 import com.yahoo.config.application.api.ValidationId;
 import com.yahoo.config.application.api.ValidationOverrides;
-import com.yahoo.config.model.deploy.DeployState;
+import com.yahoo.config.model.deploy.TestDeployState;
+import com.yahoo.config.model.deploy.TestProperties;
 import com.yahoo.config.provision.ClusterSpec;
+import com.yahoo.vespa.model.application.validation.Validation;
 import com.yahoo.vespa.model.application.validation.change.VespaConfigChangeAction;
+import com.yahoo.yolean.Exceptions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
+import static com.yahoo.test.JunitCompat.assertEquals;
 import static com.yahoo.vespa.model.application.validation.change.ConfigChangeTestUtils.newRestartAction;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.fail;
 
 public class AttributeChangeValidatorTest {
 
     private static class Fixture extends ContentClusterFixture {
-        AttributeChangeValidator validator;
 
-        public Fixture(String currentSd, String nextSd) throws Exception {
+        AttributeChangeValidator validator;
+        Validation.Execution execution;
+
+        public Fixture(String currentSd, String nextSd) {
+            this(currentSd, nextSd, null);
+        }
+
+        public Fixture(String currentSd, String nextSd, ValidationId validationOverride) {
             super(currentSd, nextSd);
+            var builder = TestDeployState.createBuilder().properties(new TestProperties());
+            if (validationOverride != null) {
+                var allows = List.of(new ValidationOverrides.Allow(validationOverride, Instant.now().plus(Duration.ofDays(1))));
+                builder.validationOverrides(new ValidationOverrides(allows));
+            }
+            execution = (Validation.Execution)Validation.createContext(null, builder.build());
             validator = new AttributeChangeValidator(ClusterSpec.Id.from("test"),
                                                      currentDb().getDerivedConfiguration().getAttributeFields(),
                                                      currentDb().getDerivedConfiguration().getIndexSchema(),
@@ -28,7 +46,7 @@ public class AttributeChangeValidatorTest {
                                                      nextDb().getDerivedConfiguration().getAttributeFields(),
                                                      nextDb().getDerivedConfiguration().getIndexSchema(),
                                                      nextDocType(),
-                                                     new DeployState.Builder().build());
+                                                     execution);
         }
 
         @Override
@@ -36,10 +54,20 @@ public class AttributeChangeValidatorTest {
             return validator.validate();
         }
 
+        void validateAndThrowIfFailedOrActionsGenerated() {
+            assertValidation(); // Implicitly calls validate()
+            execution.throwIfFailed();
+        }
+
+        void validateAndThrowIfFailed() {
+            validate();
+            execution.throwIfFailed();
+        }
+
     }
 
     @Test
-    void adding_attribute_aspect_require_restart() throws Exception {
+    void adding_attribute_aspect_require_restart()  {
         Fixture f = new Fixture("field f1 type string { indexing: summary }",
                 "field f1 type string { indexing: attribute | summary }");
         f.assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -47,7 +75,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void removing_attribute_aspect_require_restart() throws Exception {
+    void removing_attribute_aspect_require_restart() {
         Fixture f = new Fixture("field f1 type string { indexing: attribute | summary }",
                 "field f1 type string { indexing: summary }");
         f.assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -55,19 +83,19 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void adding_attribute_field_is_ok() throws Exception {
+    void adding_attribute_field_is_ok()  {
         Fixture f = new Fixture("", "field f1 type string { indexing: attribute | summary \n attribute: fast-search }");
         f.assertValidation();
     }
 
     @Test
-    void removing_attribute_field_is_ok() throws Exception {
+    void removing_attribute_field_is_ok() {
         Fixture f = new Fixture("field f1 type string { indexing: attribute | summary }", "");
         f.assertValidation();
     }
 
     @Test
-    void changing_fast_search_require_restart() throws Exception {
+    void changing_fast_search_require_restart() {
         new Fixture("field f1 type string { indexing: attribute }",
                 "field f1 type string { indexing: attribute \n attribute: fast-search }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -75,7 +103,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_fast_rank_require_restart() throws Exception {
+    void changing_fast_rank_require_restart() {
         new Fixture("field f1 type tensor(x{}) { indexing: attribute }",
                 "field f1 type tensor(x{}) { indexing: attribute \n attribute: fast-rank }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -83,7 +111,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_btree2hash_require_restart() throws Exception {
+    void changing_btree2hash_require_restart() {
         new Fixture("field f1 type long { indexing: attribute\n attribute: fast-search\n dictionary: btree}",
                 "field f1 type long { indexing: attribute\n attribute: fast-search\n dictionary: hash }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -91,7 +119,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_hash2btree_require_restart() throws Exception {
+    void changing_hash2btree_require_restart() {
         new Fixture("field f1 type long { indexing: attribute\n attribute: fast-search\n dictionary: hash}",
                 "field f1 type long { indexing: attribute\n attribute: fast-search\n dictionary: btree }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -99,7 +127,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_fast_access_require_restart() throws Exception {
+    void changing_fast_access_require_restart() {
         new Fixture("field f1 type string { indexing: attribute \n attribute: fast-access }",
                 "field f1 type string { indexing: attribute }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -107,7 +135,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_uncased2cased_require_restart() throws Exception {
+    void changing_uncased2cased_require_restart() {
         new Fixture("field f1 type string { indexing: attribute\n attribute: fast-search\n dictionary { btree\ncased}\nmatch:cased}",
                 "field f1 type string { indexing: attribute\n attribute: fast-search\n dictionary{ btree\nuncased}\nmatch:uncased }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -115,7 +143,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_dense_posting_list_threshold_require_restart() throws Exception {
+    void changing_dense_posting_list_threshold_require_restart() {
         new Fixture(
                 "field f1 type predicate { indexing: attribute \n index { arity: 8 \n dense-posting-list-threshold: 0.2 } }",
                 "field f1 type predicate { indexing: attribute \n index { arity: 8 \n dense-posting-list-threshold: 0.4 } }").
@@ -124,21 +152,21 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void removing_attribute_aspect_from_index_field_is_ok() throws Exception {
+    void removing_attribute_aspect_from_index_field_is_ok() {
         Fixture f = new Fixture("field f1 type string { indexing: index | attribute }",
                 "field f1 type string { indexing: index }");
         f.assertValidation();
     }
 
     @Test
-    void removing_attribute_aspect_from_index_and_summary_field_is_ok() throws Exception {
+    void removing_attribute_aspect_from_index_and_summary_field_is_ok() {
         Fixture f = new Fixture("field f1 type string { indexing: index | attribute | summary }",
                 "field f1 type string { indexing: index | summary }");
         f.assertValidation();
     }
 
     @Test
-    void adding_rank_filter_requires_restart() throws Exception {
+    void adding_rank_filter_requires_restart() {
         new Fixture("field f1 type string { indexing: attribute }",
                 "field f1 type string { indexing: attribute \n rank: filter }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -146,7 +174,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void removing_rank_filter_requires_restart() throws Exception {
+    void removing_rank_filter_requires_restart() {
         new Fixture("field f1 type string { indexing: attribute \n rank: filter }",
                 "field f1 type string { indexing: attribute }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -154,7 +182,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void adding_hnsw_index_requires_restart() throws Exception {
+    void adding_hnsw_index_requires_restart() {
         new Fixture("field f1 type tensor(x[2]) { indexing: attribute }",
                 "field f1 type tensor(x[2]) { indexing: attribute | index \n index { hnsw } }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -162,7 +190,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void removing_hnsw_index_requres_restart() throws Exception {
+    void removing_hnsw_index_requres_restart() {
         new Fixture("field f1 type tensor(x[2]) { indexing: attribute | index \n index { hnsw } }",
                 "field f1 type tensor(x[2]) { indexing: attribute }").
                 assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
@@ -170,7 +198,7 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_distance_metric_without_hnsw_index_enabled_requires_restart() throws Exception {
+    void changing_distance_metric_without_hnsw_index_enabled_requires_restart() {
         new Fixture("field f1 type tensor(x[2]) { indexing: attribute }",
                 "field f1 type tensor(x[2]) { indexing: attribute \n attribute { " +
                         "distance-metric: geodegrees \n } }").
@@ -180,47 +208,244 @@ public class AttributeChangeValidatorTest {
     }
 
     @Test
-    void changing_distance_metric_with_hnsw_index_enabled_requires_restart() throws Exception {
-        new Fixture("field f1 type tensor(x[2]) { indexing: attribute | index \n index { hnsw } }",
-                "field f1 type tensor(x[2]) { indexing: attribute | index \n attribute { " +
-                        "distance-metric: geodegrees \n } }").
-                assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
-                "Field 'f1' changed: change property " +
-                        "'distance-metric' from 'EUCLIDEAN' to 'GEODEGREES'"));
-    }
+    void changing_distance_metric_with_hnsw_index_enabled_requires_restart() {
+        var currentSd = """
+                        field f1 type tensor(x[2]) {
+                          indexing: attribute | index
+                          index { hnsw }
+                        }
+                        """;
+        var nextSd = """
+                        field f1 type tensor(x[2]) {
+                          indexing: attribute | index
+                          index { hnsw }
+                          attribute {
+                            distance-metric: geodegrees
+                          }
+                        }
+                        """;
 
-    @Test
-    void changing_hnsw_index_property_max_links_per_node_requires_restart() throws Exception {
-        new Fixture("field f1 type tensor(x[2]) { indexing: attribute | index \n index { hnsw } }",
-                "field f1 type tensor(x[2]) { indexing: attribute | index \n index { " +
-                        "hnsw { max-links-per-node: 4 } } }").
-                assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
-                "Field 'f1' changed: change hnsw index property " +
-                        "'max-links-per-node' from '16' to '4'"));
-    }
+        // Success when validation override is set
+        String expectedOutput = "Field 'f1' changed: change property 'distance-metric' from 'EUCLIDEAN' to 'GEODEGREES'";
+        var fixture = new Fixture(currentSd, nextSd, ValidationId.hnswSettingsChange);
+        fixture.assertValidation(newRestartAction(ClusterSpec.Id.from("test"), expectedOutput));
+        fixture.execution.throwIfFailed();
 
-    @Test
-    void changing_hnsw_index_property_neighbors_to_explore_at_insert_requires_restart() throws Exception {
-        new Fixture("field f1 type tensor(x[2]) { indexing: attribute | index \n index { hnsw } }",
-                "field f1 type tensor(x[2]) { indexing: attribute | index \n index { " +
-                        "hnsw { neighbors-to-explore-at-insert: 100 } } }").
-                assertValidation(newRestartAction(ClusterSpec.Id.from("test"),
-                "Field 'f1' changed: change hnsw index property " +
-                        "'neighbors-to-explore-at-insert' from '200' to '100'"));
-    }
-
-    @Test
-    void removing_paged_requires_override() throws Exception {
+        // Should fail when validation override is not set
+        fixture = new Fixture(currentSd, nextSd);
+        fixture.assertValidation(newRestartAction(ClusterSpec.Id.from("test"), expectedOutput));
         try {
-            new Fixture("field f1 type tensor(x[10]) { indexing: attribute \n attribute: paged }",
-                    "field f1 type tensor(x[10]) { indexing: attribute  }").
-                    assertValidation();
+            fixture.execution.throwIfFailed();
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals(validationMessage("hnsw-settings-change",
+                                           "Changes to hnsw index settings: change property 'distance-metric' from 'EUCLIDEAN' to 'GEODEGREES'." +
+                                           " This requires the hnsw index to be rebuilt during initialization, which may take a long time."),
+                         Exceptions.toMessageString(e));
+        }
+    }
+
+    @Test
+    void changing_hnsw_index_property_max_links_per_node_requires_restart() {
+        var currentSd = """
+                field f1 type tensor(x[2]) {
+                  indexing: attribute | index
+                  index {
+                    hnsw {
+                    }
+                  }
+                }
+                """;
+        var nextSd = """
+                field f1 type tensor(x[2]) {
+                  indexing: attribute | index
+                  index {
+                    hnsw {
+                      max-links-per-node: 4
+                    }
+                  }
+                }
+                """;
+
+        var expectedOutput = "Field 'f1' changed: change hnsw index property 'max-links-per-node' from '16' to '4'";
+
+        // Success when validation override is set
+        var fixture = new Fixture(currentSd, nextSd, ValidationId.hnswSettingsChange);
+        fixture.assertValidation(newRestartAction(ClusterSpec.Id.from("test"), expectedOutput));
+        fixture.execution.throwIfFailed();
+
+        // Should fail when validation override is not set
+        fixture = new Fixture(currentSd, nextSd);
+        fixture.assertValidation(newRestartAction(ClusterSpec.Id.from("test"), expectedOutput));
+        try {
+            fixture.execution.throwIfFailed();
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals(validationMessage("hnsw-settings-change",
+                                           "Changes to hnsw index settings: change hnsw index property 'max-links-per-node' from '16' to '4'." +
+                                           " This requires the hnsw index to be rebuilt during initialization, which may take a long time."),
+                         e.getMessage());
+        }
+    }
+
+    @Test
+    void changing_hnsw_index_property_neighbors_to_explore_at_insert_requires_restart() {
+        var currentSd = """
+                field f1 type tensor(x[2]) {
+                  indexing: attribute | index
+                  index {
+                    hnsw {
+                    }
+                  }
+                }
+                """;
+        var nextSd = """
+                field f1 type tensor(x[2]) {
+                  indexing: attribute | index
+                  index {
+                    hnsw {
+                      neighbors-to-explore-at-insert: 100
+                    }
+                  }
+                }
+                """;
+
+        var expectedOutput = "Field 'f1' changed: change hnsw index property 'neighbors-to-explore-at-insert' from '200' to '100'";
+
+        // Success when validation override is set
+        new Fixture(currentSd, nextSd).assertValidation(newRestartAction(ClusterSpec.Id.from("test"), expectedOutput));
+    }
+
+    @Test
+    void removing_paged_requires_override() {
+        var fixture = new Fixture("field f1 type tensor(x[10]) { indexing: attribute \n attribute: paged }",
+                                  "field f1 type tensor(x[10]) { indexing: attribute  }");
+        fixture.assertValidation(newRestartAction(ClusterSpec.Id.from("test"), "Field 'f1' changed: remove attribute 'paged'"));
+        try {
+            fixture.execution.throwIfFailed();
             fail("Expected exception on removal of 'paged'");
         }
-        catch (ValidationOverrides.ValidationException e) {
-            assertTrue(e.getMessage().contains(ValidationId.pagedSettingRemoval.toString()));
+        catch (Exception e) {
+            assertEquals(validationMessage("paged-setting-removal",
+                                           "Removing paged for an attribute. " +
+                                           "May cause content nodes to run out of memory: attribute 'f1' (tensor(x[10]))' has setting 'paged' removed. " +
+                                           "This may cause content nodes to run out of memory as the entire attribute is loaded into memory."),
+                         e.getMessage());
         }
     }
 
+    @Test
+    void adding_quantization_in_place_is_disallowed() {
+        var fromSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                }
+                """;
+        var toSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 3
+                    }
+                  }
+                }
+        """;
+        var f = new Fixture(fromSd, toSd);
+        var e = assertThrows(IllegalArgumentException.class, f::validateAndThrowIfFailedOrActionsGenerated);
+        assertEquals("Quantization cannot be added or removed on existing attribute 'f1' (tensor(x[10])). " +
+                "First remove the attribute aspect, redeploy and restart content nodes, " +
+                "then re-add the attribute with updated quantization settings.", e.getMessage());
+    }
+
+    @Test
+    void removing_quantization_in_place_is_disallowed() {
+        var fromSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 3
+                    }
+                  }
+                }
+                """;
+        var toSd = "field f1 type tensor(x[10]) { indexing: attribute }";
+        var f = new Fixture(fromSd, toSd);
+        var e = assertThrows(IllegalArgumentException.class, f::validateAndThrowIfFailedOrActionsGenerated);
+        assertEquals("Quantization cannot be added or removed on existing attribute 'f1' (tensor(x[10])). " +
+                     "First remove the attribute aspect, redeploy and restart content nodes, " +
+                     "then re-add the attribute with updated quantization settings.", e.getMessage());
+    }
+
+    @Test
+    void changing_quantization_bit_count_in_place_is_disallowed() {
+        var fromSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 3
+                    }
+                  }
+                }
+                """;
+        var toSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 4
+                    }
+                  }
+                }
+                """;
+        var f = new Fixture(fromSd, toSd);
+        var e = assertThrows(IllegalArgumentException.class, f::validateAndThrowIfFailedOrActionsGenerated);
+        assertEquals("Quantization bit count cannot be changed in-place on existing attribute 'f1' (tensor(x[10])). " +
+                     "First remove the attribute aspect, redeploy and restart content nodes, then " +
+                     "re-add the attribute with updated quantization settings.", e.getMessage());
+    }
+
+    @Test
+    void changing_distance_metric_on_quantized_tensor_in_place_is_disallowed() {
+        var fromSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 4
+                    }
+                    distance-metric: euclidean
+                  }
+                }
+                """;
+        var toSd = """
+                field f1 type tensor(x[10]) {
+                  indexing: attribute
+                  attribute {
+                    quantization {
+                      bits: 4
+                    }
+                    distance-metric: innerproduct
+                  }
+                }
+                """;
+        var f = new Fixture(fromSd, toSd);
+        // We can't assert that this produces no actions, since changing the distance metric will also
+        // implicitly add a restart action.
+        var e = assertThrows(IllegalArgumentException.class, f::validateAndThrowIfFailed);
+        assertEquals("Distance metric cannot be changed in-place on existing quantized attribute 'f1' (tensor(x[10])). " +
+                "First remove the attribute aspect, redeploy and restart content nodes, then " +
+                "re-add the attribute with updated quantization settings.", e.getMessage());
+    }
+
+    private String validationMessage(String validationId, String message) {
+        return message +
+               " To allow this add <allow until='yyyy-mm-dd'>" + validationId +
+               "</allow> to validation-overrides.xml, see https://docs.vespa.ai/en/reference/applications/validation-overrides.html";
+    }
 
 }

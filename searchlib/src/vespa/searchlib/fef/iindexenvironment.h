@@ -2,10 +2,13 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <cstdint>
 #include <memory>
+#include <string>
 
-namespace vespalib::eval { struct ConstantValue; }
+namespace vespalib::eval {
+struct ConstantValue;
+}
 
 namespace search::fef {
 
@@ -18,10 +21,9 @@ class OnnxModel;
  * Abstract view of index related information available to the
  * framework.
  **/
-class IIndexEnvironment
-{
+class IIndexEnvironment {
 public:
-    using string = vespalib::string;
+    using string = std::string;
     /**
      * This enum defines the different motivations the framework has
      * for configuring a feature blueprint. RANK means the feature is
@@ -30,12 +32,7 @@ public:
      * means that we are just trying to figure out if this setup is
      * valid; the feature will never actually be executed.
      **/
-    enum FeatureMotivation {
-        UNKNOWN = 0,
-        RANK = 1,
-        DUMP = 2,
-        VERIFY_SETUP = 3
-    };
+    enum FeatureMotivation { UNKNOWN = 0, RANK = 1, DUMP = 2, VERIFY_SETUP = 3 };
 
     /**
      * Obtain the set of properties associated with this index
@@ -43,38 +40,41 @@ public:
      *
      * @return properties
      **/
-    virtual const Properties &getProperties() const = 0;
+    virtual const Properties& getProperties() const = 0;
 
     /**
-     * Obtain the number of fields
+     * Obtain the size of the field table, i.e. one more than the number of
+     * declared fields, since the special "no field" instance is held first.
      *
-     * @return number of fields
+     * @return number of fields, including the "no field"
      **/
     virtual uint32_t getNumFields() const = 0;
 
     /**
      * Obtain a field by using the field enumeration. The legal range
-     * for id is [0, getNumFields>. If id is out of bounds, 0 will be
-     * returned.
+     * for id is [0, getNumFields>. Id 0 always yields the special "no field"
+     * instance, see FieldInfo::no_field(); declared fields have ids in the
+     * range [1, getNumFields>. If id is out of bounds, nullptr is returned.
      *
      * @return information about a single field
      **/
-    virtual const FieldInfo *getField(uint32_t id) const = 0;
+    virtual const FieldInfo* getField(uint32_t id) const = 0;
 
     /**
      * Obtain a field by using the field name. If the field is not
-     * found, 0 will be returned.
+     * found, nullptr is returned. The "no field" is not name addressable, so
+     * looking up the empty name always fails.
      *
      * @return information about a single field
      **/
-    virtual const FieldInfo *getFieldByName(const string &name) const = 0;
+    virtual const FieldInfo* getFieldByName(const string& name) const = 0;
 
     /**
      * Obtain the table manager associated with this index environment.
      *
      * @return table manager
      **/
-    virtual const ITableManager &getTableManager() const = 0;
+    virtual const ITableManager& getTableManager() const = 0;
 
     /**
      * Obtain the current motivation behind feature setup. The
@@ -100,25 +100,24 @@ public:
     /**
      * Returns a constant rank value with the given name or null ptr if no such value exists.
      */
-    virtual std::unique_ptr<vespalib::eval::ConstantValue> getConstantValue(const vespalib::string &name) const = 0;
+    virtual std::unique_ptr<vespalib::eval::ConstantValue> getConstantValue(const std::string& name) const = 0;
 
     /**
      * Returns the ranking expression with the given name or empty string if not found.
      **/
-    virtual vespalib::string getRankingExpression(const vespalib::string &name) const = 0;
+    virtual std::string getRankingExpression(const std::string& name) const = 0;
 
     /**
      * Get configuration for the given onnx model.
      **/
-    virtual const OnnxModel *getOnnxModel(const vespalib::string &name) const = 0;
+    virtual const OnnxModel* getOnnxModel(const std::string& name) const = 0;
 
     virtual uint32_t getDistributionKey() const = 0;
 
     /**
      * Virtual destructor to allow safe subclassing.
      **/
-    virtual ~IIndexEnvironment() {}
+    virtual ~IIndexEnvironment() = default;
 };
 
-}
-
+} // namespace search::fef

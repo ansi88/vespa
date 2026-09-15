@@ -2,7 +2,8 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace storage::lib {
@@ -12,4 +13,4 @@ struct DistributionConfigUtil {
     static std::vector<uint16_t> getGroupPath(std::string_view path);
 };
 
-}
+} // namespace storage::lib

@@ -23,16 +23,14 @@ public class LlamaBundleActivator implements BundleActivator {
         log.fine("start bundle");
         String skipAll = LlamaBundleActivator.class.getSimpleName() + SKIP_SUFFIX;
         if (SKIP_VALUE.equals(System.getProperty(skipAll))) {
-            log.info("skip loading of native libraries");
+            log.fine("skip loading of native libraries");
             return;
         }
         if (checkFilenames(
                     "/dev/nvidia0",
-                    "/opt/vespa-deps/lib64/cuda/libllama.so",
                     "/opt/vespa-deps/lib64/cuda/libjllama.so")) {
             System.setProperty(PATH_PROPNAME, "/opt/vespa-deps/lib64/cuda");
         } else if (checkFilenames(
-                    "/opt/vespa-deps/lib64/libllama.so",
                     "/opt/vespa-deps/lib64/libjllama.so")) {
             System.setProperty(PATH_PROPNAME, "/opt/vespa-deps/lib64");
         } else {

@@ -37,6 +37,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.time.Instant;
 import java.util.List;
@@ -47,7 +48,10 @@ import java.util.concurrent.Executor;
 
 import static java.time.temporal.ChronoUnit.DAYS;
 import static org.hamcrest.core.IsInstanceOf.instanceOf;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -141,8 +145,14 @@ public class MultiTenantRpcAuthorizerTest {
         exceptionRule.expectMessage("Peer is not allowed to access file reference other-file-reference. Peer is owned by mytenant.myapplication. File references owned by this application: [file 'myfilereference']");
         exceptionRule.expectCause(instanceOf(AuthorizationException.class));
 
-        authorizer.authorizeFileRequest(fileRequest)
-                .get();
+        try {
+            authorizer.authorizeFileRequest(fileRequest).get();
+        } finally {
+            // Denial must be sent back to the client immediately, as a permanent (non-timeout) error -
+            // this is what allows FileReferenceDownloader/FileAcquirerImpl to fail fast instead of retrying.
+            verify(fileRequest).setError(eq(0x20001), anyString()); // JrtErrorCode.UNAUTHORIZED
+            verify(fileRequest).returnRequest();
+        }
     }
 
     @Test
@@ -161,8 +171,12 @@ public class MultiTenantRpcAuthorizerTest {
         exceptionRule.expectMessage("Peer is not allowed to access config owned by mytenant.myapplication. Peer is owned by malice.malice-app");
         exceptionRule.expectCause(instanceOf(AuthorizationException.class));
 
-        authorizer.authorizeConfigRequest(configRequest)
-                .get();
+        try {
+            authorizer.authorizeConfigRequest(configRequest).get();
+        } finally {
+            verify(configRequest).setError(eq(0x20001), anyString()); // JrtErrorCode.UNAUTHORIZED
+            verify(configRequest).returnRequest();
+        }
     }
 
     @Test
@@ -272,7 +286,7 @@ public class MultiTenantRpcAuthorizerTest {
         request.setString("clientHostname", hostname);
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             new JsonFormat(false).encode(out, data);
-            return out.toString();
+            return out.toString(StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

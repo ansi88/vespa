@@ -12,16 +12,12 @@ public enum SummaryTransform {
     NONE("none"),
     ATTRIBUTE("attribute"),
     BOLDED("bolded"),
-    DISTANCE("distance"),
     DYNAMICBOLDED("dynamicbolded"),
     DYNAMICTEASER("dynamicteaser"),
-    POSITIONS("positions"),
     RANKFEATURES("rankfeatures"),
     SUMMARYFEATURES("summaryfeatures"),
     GEOPOS("geopos"),
     ATTRIBUTECOMBINER("attributecombiner"),
-    MATCHED_ELEMENTS_FILTER("matchedelementsfilter"),
-    MATCHED_ATTRIBUTE_ELEMENTS_FILTER("matchedattributeelementsfilter"),
     COPY("copy"),
     DOCUMENT_ID("documentid"),
     TOKENS("tokens"),
@@ -75,8 +71,8 @@ public enum SummaryTransform {
     /** Returns whether this transform always gets its value by accessing memory only */
     public boolean isInMemory() {
         return switch (this) {
-            case ATTRIBUTE, DISTANCE, POSITIONS, GEOPOS, RANKFEATURES, SUMMARYFEATURES,
-                    ATTRIBUTECOMBINER, MATCHED_ATTRIBUTE_ELEMENTS_FILTER, ATTRIBUTE_TOKENS ->
+            case ATTRIBUTE, GEOPOS, RANKFEATURES, SUMMARYFEATURES,
+                    ATTRIBUTECOMBINER, ATTRIBUTE_TOKENS ->
                     true;
             default -> false;
         };

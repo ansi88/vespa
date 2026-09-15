@@ -5,7 +5,7 @@ import java.util.Locale;
 import java.util.OptionalInt;
 
 /**
- * Text utility functions.
+ * Text utility functions. See also {com.yahoo.language.process.CharacterClasses}.
  * 
  * @author bratseth
  */
@@ -61,7 +61,7 @@ public final class Text {
     }
 
     /**
-     * Validates that the given string value only contains text characters and
+     * Validates that the given string value only contains text characters and, if not
      * returns the first illegal code point if one is found.
      */
     public static OptionalInt validateTextString(String string) {
@@ -106,29 +106,15 @@ public final class Text {
 
     /** Returns whether the given code point is displayable. */
     public static boolean isDisplayable(int codePoint) {
-        switch (Character.getType(codePoint)) {
-            case Character.CONNECTOR_PUNCTUATION :
-            case Character.DASH_PUNCTUATION :
-            case Character.START_PUNCTUATION :
-            case Character.END_PUNCTUATION :
-            case Character.INITIAL_QUOTE_PUNCTUATION :
-            case Character.FINAL_QUOTE_PUNCTUATION:
-            case Character.OTHER_PUNCTUATION :
-            case Character.LETTER_NUMBER :
-            case Character.OTHER_LETTER :
-            case Character.LOWERCASE_LETTER :
-            case Character.TITLECASE_LETTER :
-            case Character.MODIFIER_LETTER :
-            case Character.UPPERCASE_LETTER :
-            case Character.DECIMAL_DIGIT_NUMBER :
-            case Character.OTHER_NUMBER :
-            case Character.CURRENCY_SYMBOL :
-            case Character.OTHER_SYMBOL :
-            case Character.MATH_SYMBOL :
-                return true;
-            default :
-                return false;
-        }
+        return switch (Character.getType(codePoint)) {
+            case Character.CONNECTOR_PUNCTUATION, Character.DASH_PUNCTUATION, Character.START_PUNCTUATION,
+                 Character.END_PUNCTUATION, Character.INITIAL_QUOTE_PUNCTUATION, Character.FINAL_QUOTE_PUNCTUATION,
+                 Character.OTHER_PUNCTUATION, Character.LETTER_NUMBER, Character.OTHER_LETTER,
+                 Character.LOWERCASE_LETTER, Character.TITLECASE_LETTER, Character.MODIFIER_LETTER,
+                 Character.UPPERCASE_LETTER, Character.DECIMAL_DIGIT_NUMBER, Character.OTHER_NUMBER,
+                 Character.CURRENCY_SYMBOL, Character.OTHER_SYMBOL, Character.MATH_SYMBOL -> true;
+            default -> false;
+        };
     }
 
     private static StringBuilder lazy(StringBuilder sb, String s, int i) {
@@ -207,6 +193,35 @@ public final class Text {
 
     public static String format(String format, Object... args) {
 	return String.format(Locale.US, format, args);
+    }
+
+    /**
+     * Returns the value as exactly 8 hex digits in excess notation: Biased by 2^31, such that the
+     * strings sort in the same order as the values, also across zero:
+     * Integer.MIN_VALUE becomes "00000000", 0 becomes "80000000".
+     */
+    public static String toExcessHex8(int value) {
+        return format("%08x", value ^ Integer.MIN_VALUE);
+    }
+
+    /**
+     * Returns the value as exactly 16 hex digits in excess notation: Biased by 2^63, such that the
+     * strings sort in the same order as the values, also across zero:
+     * Long.MIN_VALUE becomes "0000000000000000", 0 becomes "8000000000000000".
+     */
+    public static String toExcessHex16(long value) {
+        return format("%016x", value ^ Long.MIN_VALUE);
+    }
+
+    /**
+     * Returns true if the string contains any control characters (0x00-0x1F and 0x7F), false otherwise.
+     */
+    public static boolean containsControlCharacter(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < 0x20 || c == 0x7F) return true;
+        }
+        return false;
     }
 
 }

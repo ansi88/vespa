@@ -19,12 +19,12 @@ import java.util.HashMap;
 public abstract class AbstractApplicationPackage implements ApplicationPackage {
 
     @Override
-    public Map<String,String> legacyOverrides() {
+    public Map<String, String> legacyOverrides() {
         Map<String, String> result = new HashMap<>();
         try {
             Document services = Xml.getDocument(getServices());
             NodeList legacyNodes = services.getElementsByTagName("legacy");
-            for (int i=0; i < legacyNodes.getLength(); i++) {
+            for (int i = 0; i < legacyNodes.getLength(); i++) {
                 var flagNodes = legacyNodes.item(i).getChildNodes();
                 for (int j = 0; j < flagNodes.getLength(); ++j) {
                     var flagNode = flagNodes.item(j);
@@ -41,17 +41,12 @@ public abstract class AbstractApplicationPackage implements ApplicationPackage {
         return result;
     }
 
-    public static boolean validSchemaFilename(String fn) {
-        if (! fn.endsWith(SD_NAME_SUFFIX)) {
-            return false;
-        }
-        int lastSlash = fn.lastIndexOf('/');
-        if (lastSlash >= 0) {
-            fn = fn.substring(lastSlash+1);
-        }
-        if (fn.startsWith(".")) {
-            return false;
-        }
+    public static boolean validSchemaFilename(String name) {
+        if (! name.endsWith(SD_NAME_SUFFIX)) return false;
+        int lastSlash = name.lastIndexOf('/');
+        if (lastSlash >= 0)
+            name = name.substring(lastSlash+1);
+        if (name.startsWith(".")) return false;
         return true;
     }
 

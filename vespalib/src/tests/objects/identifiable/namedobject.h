@@ -2,22 +2,21 @@
 #pragma once
 
 #include <vespa/vespalib/objects/identifiable.h>
+
 #include <string>
 
-namespace vespalib
-{
+namespace vespalib {
 
-class NamedObject : public Identifiable
-{
+class NamedObject : public Identifiable {
 public:
     DECLARE_IDENTIFIABLE_NS(vespalib, NamedObject);
     DECLARE_NBO_SERIALIZE;
-    NamedObject() : _name() { }
-    NamedObject(const string & name) : _name(name) { }
-    const string & getName() const { return _name; }
+    NamedObject() : _name() {}
+    NamedObject(const std::string& name) : _name(name) {}
+    const std::string& getName() const { return _name; }
+
 private:
-    string _name;
+    std::string _name;
 };
 
-}
-
+} // namespace vespalib

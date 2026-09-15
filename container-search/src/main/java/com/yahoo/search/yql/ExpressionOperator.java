@@ -46,6 +46,7 @@ enum ExpressionOperator implements Operator {
 
     INDEX(ExpressionOperator.class, ExpressionOperator.class),
     PROPREF(ExpressionOperator.class, String.class),
+    MAPREF(ExpressionOperator.class, ExpressionOperator.class),
 
     CALL(TypeCheckers.LIST_OF_STRING, TypeCheckers.EXPRS),
 
@@ -62,22 +63,13 @@ enum ExpressionOperator implements Operator {
 
     private final ArgumentsTypeChecker checker;
 
-
     ExpressionOperator(Object... types) {
         checker = TypeCheckers.make(this, types);
     }
-
 
     @Override
     public void checkArguments(Object... args) {
         checker.check(args);
     }
-
-    public static Predicate<OperatorNode<? extends Operator>> IS = new Predicate<OperatorNode<? extends Operator>>() {
-        @Override
-        public boolean apply(OperatorNode<? extends Operator> input) {
-            return input.getOperator() instanceof ExpressionOperator;
-        }
-    };
 
 }

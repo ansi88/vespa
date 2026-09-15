@@ -7,7 +7,6 @@ import com.yahoo.config.provision.Provisioner;
 import com.yahoo.vespa.config.server.ApplicationRepository;
 import com.yahoo.vespa.config.server.MockLogRetriever;
 import com.yahoo.vespa.config.server.MockProvisioner;
-import com.yahoo.vespa.config.server.application.OrchestratorMock;
 import com.yahoo.vespa.config.server.deploy.DeployTester;
 import com.yahoo.vespa.config.server.modelfactory.ModelFactoryRegistry;
 import com.yahoo.vespa.config.server.provision.HostProvisionerProvider;
@@ -44,6 +43,7 @@ class MaintainerTester {
                 .configServerDBDir(temporaryFolder.newFolder().getAbsolutePath())
                 .configDefinitionsDir(temporaryFolder.newFolder().getAbsolutePath())
                 .fileReferencesDir(temporaryFolder.newFolder().getAbsolutePath())
+                .sessionLifetime(60)
                 .build();
         tenantRepository = new TestTenantRepository.Builder()
                 .withClock(clock)
@@ -51,10 +51,10 @@ class MaintainerTester {
                 .withConfigserverConfig(configserverConfig)
                 .withConfigserverConfig(configserverConfig)
                 .withModelFactoryRegistry(new ModelFactoryRegistry(List.of(new DeployTester.CountingModelFactory(clock))))
+                .withFlagSource(flagSource)
                 .build();
         applicationRepository = new ApplicationRepository.Builder()
                 .withTenantRepository(tenantRepository)
-                .withOrchestrator(new OrchestratorMock())
                 .withLogRetriever(new MockLogRetriever())
                 .withClock(clock)
                 .withConfigserverConfig(configserverConfig)
@@ -63,7 +63,7 @@ class MaintainerTester {
     }
 
     void deployApp(File applicationPath, PrepareParams.Builder prepareParams) {
-        applicationRepository.deploy(applicationPath, prepareParams.ignoreValidationErrors(true).build());
+        applicationRepository.prepareAndActivate(applicationPath, prepareParams.ignoreValidationErrors(true).build());
     }
 
     Curator curator() { return curator; }

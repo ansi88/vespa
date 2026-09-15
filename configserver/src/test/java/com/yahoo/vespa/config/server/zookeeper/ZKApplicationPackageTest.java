@@ -4,6 +4,7 @@ package com.yahoo.vespa.config.server.zookeeper;
 import com.yahoo.component.Version;
 import com.yahoo.config.model.deploy.DeployState;
 import com.yahoo.config.provision.AllocatedHosts;
+import com.yahoo.config.provision.AzName;
 import com.yahoo.config.provision.ClusterMembership;
 import com.yahoo.config.provision.DockerImage;
 import com.yahoo.config.provision.Flavor;
@@ -54,10 +55,10 @@ public class ZKApplicationPackageTest {
                                     nodeResources,
                                     nodeResources,
                                     nodeResources,
-                                    ClusterMembership.from("container/test/0/0", Version.fromString("6.73.1"),
-                                                           Optional.of(DockerImage.fromString(dockerImage))),
+                                    ClusterMembership.from("container/test/0/0"),
                                     Optional.of(Version.fromString("6.0.1")), Optional.empty(),
-                                    Optional.of(DockerImage.fromString(dockerImage)))));
+                                    Optional.of(DockerImage.fromString(dockerImage)),
+                                    AzName.defaultName())));
     }
 
     private Curator curator;

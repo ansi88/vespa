@@ -37,7 +37,8 @@
       "com.yahoo.config.subscription.ConfigSubscriber$SingleSubscriber"
     ],
     "attributes" : [
-      "public"
+      "public",
+      "final"
     ],
     "methods" : [
       "public void <init>(java.lang.String, com.yahoo.messagebus.ConfigHandler)",
@@ -284,6 +285,8 @@
       "public void swapState(com.yahoo.messagebus.Routable)",
       "public com.yahoo.messagebus.routing.Route getRoute()",
       "public com.yahoo.messagebus.Message setRoute(com.yahoo.messagebus.routing.Route)",
+      "public void injectMetadata(com.yahoo.messagebus.MetadataInjector)",
+      "public void extractMetadata(com.yahoo.messagebus.MetadataExtractor)",
       "public long getTimeReceived()",
       "public com.yahoo.messagebus.Message setTimeReceived(long)",
       "public com.yahoo.messagebus.Message setTimeReceivedNow()",
@@ -325,7 +328,8 @@
       "com.yahoo.messagebus.ReplyHandler"
     ],
     "attributes" : [
-      "public"
+      "public",
+      "final"
     ],
     "methods" : [
       "public void register(com.yahoo.messagebus.MessageBus$SendBlockedMessages)",
@@ -607,7 +611,8 @@
       "java.lang.Runnable"
     ],
     "attributes" : [
-      "public"
+      "public",
+      "final"
     ],
     "methods" : [
       "public void <init>()",
@@ -618,6 +623,32 @@
       "public void sync()",
       "public boolean destroy()",
       "public void run()"
+    ],
+    "fields" : [ ]
+  },
+  "com.yahoo.messagebus.MetadataExtractor" : {
+    "superClass" : "java.lang.Object",
+    "interfaces" : [ ],
+    "attributes" : [
+      "public",
+      "interface",
+      "abstract"
+    ],
+    "methods" : [
+      "public abstract java.util.Optional extractValue(java.lang.String)"
+    ],
+    "fields" : [ ]
+  },
+  "com.yahoo.messagebus.MetadataInjector" : {
+    "superClass" : "java.lang.Object",
+    "interfaces" : [ ],
+    "attributes" : [
+      "public",
+      "interface",
+      "abstract"
+    ],
+    "methods" : [
+      "public abstract void injectKeyValue(java.lang.String, java.lang.String)"
     ],
     "fields" : [ ]
   },
@@ -672,13 +703,13 @@
     "superClass" : "com.yahoo.messagebus.NetworkMessageBus",
     "interfaces" : [ ],
     "attributes" : [
-      "public"
+      "public",
+      "final"
     ],
     "methods" : [
       "public void <init>(com.yahoo.messagebus.MessageBusParams, com.yahoo.messagebus.network.rpc.RPCNetworkParams)",
       "public void <init>(com.yahoo.messagebus.MessageBusParams, com.yahoo.messagebus.network.rpc.RPCNetworkParams, java.lang.String)",
       "public void <init>(java.util.List, com.yahoo.messagebus.network.rpc.RPCNetworkParams, java.lang.String)",
-      "public void <init>(com.yahoo.messagebus.Protocol, java.lang.String)",
       "public boolean destroy()",
       "public com.yahoo.messagebus.network.rpc.RPCNetwork getRPCNetwork()"
     ],

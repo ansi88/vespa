@@ -2,6 +2,7 @@
 #pragma once
 
 #include "documentoperation.h"
+
 #include <vespa/document/base/documentid.h>
 
 namespace proton {
@@ -10,12 +11,12 @@ class RemoveOperation : public DocumentOperation {
 protected:
     explicit RemoveOperation(Type type) : DocumentOperation(type) {}
     RemoveOperation(Type type, document::BucketId bucketId, Timestamp timestamp)
-        : DocumentOperation(type, bucketId, timestamp)
-    {}
+        : DocumentOperation(type, bucketId, timestamp) {}
+
 public:
     virtual bool hasDocType() const = 0;
     virtual std::string_view getDocType() const = 0;
-    virtual const document::GlobalId & getGlobalId() const = 0;
+    virtual const document::GlobalId& getGlobalId() const = 0;
 };
 
 class RemoveOperationWithDocId : public RemoveOperation {
@@ -23,13 +24,13 @@ class RemoveOperationWithDocId : public RemoveOperation {
 
 public:
     RemoveOperationWithDocId();
-    RemoveOperationWithDocId(document::BucketId bucketId, Timestamp timestamp, const document::DocumentId &docId);
+    RemoveOperationWithDocId(document::BucketId bucketId, Timestamp timestamp, const document::DocumentId& docId);
     ~RemoveOperationWithDocId() override;
-    const document::DocumentId &getDocumentId() const { return _docId; }
-    const document::GlobalId & getGlobalId() const override { return _docId.getGlobalId(); }
-    void serialize(vespalib::nbostream &os) const override;
-    void deserialize(vespalib::nbostream &is, const document::DocumentTypeRepo &repo) override;
-    vespalib::string toString() const override;
+    const document::DocumentId& getDocumentId() const { return _docId; }
+    const document::GlobalId& getGlobalId() const override { return _docId.getGlobalId(); }
+    void serialize(vespalib::nbostream& os) const override;
+    void deserialize(vespalib::nbostream& is, const document::DocumentTypeRepo& repo) override;
+    std::string toString() const override;
 
     bool hasDocType() const override { return _docId.hasDocType(); }
     std::string_view getDocType() const override { return _docId.getDocType(); }
@@ -37,21 +38,20 @@ public:
 
 class RemoveOperationWithGid : public RemoveOperation {
     document::GlobalId _gid;
-    vespalib::string   _docType;
+    std::string        _docType;
 
 public:
     RemoveOperationWithGid();
-    RemoveOperationWithGid(document::BucketId bucketId, Timestamp timestamp,
-                           const document::GlobalId & gid, std::string_view docType);
+    RemoveOperationWithGid(document::BucketId bucketId, Timestamp timestamp, const document::GlobalId& gid,
+                           std::string_view docType);
     ~RemoveOperationWithGid() override;
-    const document::GlobalId & getGlobalId() const override { return _gid; }
-    void serialize(vespalib::nbostream &os) const override;
-    void deserialize(vespalib::nbostream &is, const document::DocumentTypeRepo &repo) override;
-    vespalib::string toString() const override;
+    const document::GlobalId& getGlobalId() const override { return _gid; }
+    void serialize(vespalib::nbostream& os) const override;
+    void deserialize(vespalib::nbostream& is, const document::DocumentTypeRepo& repo) override;
+    std::string toString() const override;
 
     bool hasDocType() const override { return true; }
     std::string_view getDocType() const override { return _docType; }
 };
 
 } // namespace proton
-

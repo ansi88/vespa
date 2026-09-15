@@ -1,14 +1,24 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.vespa.model.builder.xml.dom;
 
+import com.yahoo.config.model.deploy.DeployState;
+import com.yahoo.config.model.deploy.TestProperties;
+import com.yahoo.config.provision.CloudAccount;
+import com.yahoo.config.provision.CloudResourceTags;
+import com.yahoo.config.provision.DockerImage;
+import com.yahoo.config.provision.Environment;
 import com.yahoo.config.provision.NodeResources.Architecture;
 import com.yahoo.config.provision.NodeResources.DiskSpeed;
 import com.yahoo.config.provision.NodeResources.StorageType;
+import com.yahoo.config.provision.RegionName;
+import com.yahoo.config.provision.SystemName;
+import com.yahoo.config.provision.Zone;
 import com.yahoo.text.XML;
 import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import com.yahoo.component.Version;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -30,7 +40,8 @@ public class NodesSpecificationTest {
                                                    bandwidth='1ZbPs'
                                                    disk-speed='fast'
                                                    storage-type='local'
-                                                   architecture='x86_64'>
+                                                   architecture='x86_64'
+                                                   max-cost-factor='1.5'>
                                           <gpu count='1g' memory='3' />
                                         </resources>
                                       </nodes>
@@ -65,6 +76,8 @@ public class NodesSpecificationTest {
 
         assertEquals(Architecture.x86_64, spec.minResources().nodeResources().architecture());
         assertEquals(Architecture.x86_64, spec.maxResources().nodeResources().architecture());
+
+        assertEquals(1.5, spec.maxCostFactor());
     }
 
     @Test
@@ -167,16 +180,132 @@ public class NodesSpecificationTest {
         assertEquals(30, spec.minResources().nodes());
         assertEquals( 3, spec.minResources().groups());
         assertEquals(30, spec.maxResources().nodes());
-        assertEquals( 30, spec.maxResources().groups());
+        assertEquals(30, spec.maxResources().groups());
         assertTrue(spec.groupSize().from().isEmpty());
         assertEquals(10, spec.groupSize().to().getAsInt());
     }
 
+
+    @Test
+    void testVariableGroupCount() {
+        var spec = nodesSpecification("<nodes groups='[1,2]' group-size='3'/>");
+        assertEquals( 3, spec.minResources().nodes());
+        assertEquals( 1, spec.minResources().groups());
+        assertEquals( 6, spec.maxResources().nodes());
+        assertEquals( 2, spec.maxResources().groups());
+        assertEquals( 3, spec.groupSize().from().getAsInt());
+        assertEquals( 3, spec.groupSize().to().getAsInt());
+    }
+
+    @Test
+    void testVariableGroupCount2() {
+        var spec = nodesSpecification("<nodes groups='[,4]' group-size='3'/>");
+        assertEquals( 3, spec.minResources().nodes());
+        assertEquals( 1, spec.minResources().groups()); // No lower limit means 1
+        assertEquals(12, spec.maxResources().nodes());
+        assertEquals( 4, spec.maxResources().groups());
+        assertEquals( 3, spec.groupSize().from().getAsInt());
+        assertEquals( 3, spec.groupSize().to().getAsInt());
+    }
+
+    @Test
+    void testVariableGroupCount3() {
+        var spec = nodesSpecification("<nodes groups='[1, ]' group-size='3'/>");
+        assertEquals(3, spec.minResources().nodes());
+        assertEquals(1, spec.minResources().groups());
+        assertEquals(3, spec.maxResources().nodes());
+        assertEquals(1, spec.maxResources().groups()); // No upper limit means 1
+        assertEquals(3, spec.groupSize().from().getAsInt());
+        assertEquals(3, spec.groupSize().to().getAsInt());
+    }
+
+    @Test
+    void testVariableNodeCount() {
+        var spec = nodesSpecification("<nodes count='[,10]' groups='2'/>");
+        assertEquals( 1, spec.minResources().nodes()); // No lower limit means 1
+        assertEquals( 2, spec.minResources().groups());
+        assertEquals(10, spec.maxResources().nodes());
+        assertEquals( 2, spec.maxResources().groups());
+    }
+
+    @Test
+    void testVariableNodeCount2() {
+        var spec = nodesSpecification("<nodes count='[1,]' groups='2'/>");
+        assertEquals(1, spec.minResources().nodes());
+        assertEquals(2, spec.minResources().groups());
+        assertEquals(1, spec.maxResources().nodes()); // No upper limit means 1
+        assertEquals(2, spec.maxResources().groups());
+    }
+
+    @Test
+    void testValidProfile() {
+        var spec = nodesSpecification("<nodes count='3' profile='large-storage'/>");
+        assertEquals(Optional.of("large-storage"), spec.profile());
+    }
+
+    @Test
+    void testNoProfile() {
+        var spec = nodesSpecification("<nodes count='3'/>");
+        assertTrue(spec.profile().isEmpty());
+    }
+
+    @Test
+    void testDockerImageNotSupportedInPublicCloudSystems() {
+        for (var system : List.of(SystemName.Public, SystemName.PublicCd, SystemName.kubernetes, SystemName.kubernetesCd)) {
+            var exception = assertThrows(IllegalArgumentException.class,
+                                         () -> nodesSpecification("<nodes count='3' docker-image='example.com/vespa/custom'/>",
+                                                                  hostedDeployState(system)));
+            assertEquals("Specifying 'docker-image' on <nodes> is not supported in Vespa Cloud", exception.getMessage());
+        }
+    }
+
+    @Test
+    void testDockerImageAllowedInNonPublicSystems() {
+        for (var system : List.of(SystemName.main, SystemName.cd, SystemName.Default)) {
+            var spec = nodesSpecification("<nodes count='3' docker-image='example.com/vespa/custom'/>",
+                                          hostedDeployState(system));
+            assertEquals(Optional.of(DockerImage.fromString("example.com/vespa/custom")), spec.dockerImageRepo());
+        }
+    }
+
+    @Test
+    void testDockerImageAllowedWhenNotHosted() {
+        var deployState = new DeployState.Builder().properties(new TestProperties())
+                                                    .zone(new Zone(SystemName.Public, Environment.prod, RegionName.defaultName()))
+                                                    .build();
+        var spec = nodesSpecification("<nodes count='3' docker-image='example.com/vespa/custom'/>", deployState);
+        assertEquals(Optional.of(DockerImage.fromString("example.com/vespa/custom")), spec.dockerImageRepo());
+    }
+
+    @Test
+    void testOperatorGivenDockerImageAllowedInPublicCloudSystems() {
+        Document nodesXml = XML.getDocument("<nodes count='3'/>");
+        var operatorImage = DockerImage.fromString("example.com/vespa/operator-selected");
+        var spec = NodesSpecification.create(false, false, Version.emptyVersion,
+                                             new ModelElement(nodesXml.getDocumentElement()),
+                                             Optional.of(operatorImage), CloudAccount.unspecified(),
+                                             CloudResourceTags.empty(), List.of(),
+                                             hostedDeployState(SystemName.Public));
+        assertEquals(Optional.of(operatorImage), spec.dockerImageRepo());
+    }
+
+    private static DeployState hostedDeployState(SystemName system) {
+        return new DeployState.Builder().properties(new TestProperties().setHostedVespa(true))
+                                        .zone(new Zone(system, Environment.prod, RegionName.defaultName()))
+                                        .build();
+    }
+
     private NodesSpecification nodesSpecification(String nodesElement) {
+        return nodesSpecification(nodesElement, new DeployState.Builder().build());
+    }
+
+    private NodesSpecification nodesSpecification(String nodesElement, DeployState deployState) {
         Document nodesXml = XML.getDocument(nodesElement);
         return NodesSpecification.create(false, false, Version.emptyVersion,
                                          new ModelElement(nodesXml.getDocumentElement()),
-                                         Optional.empty(), Optional.empty());
+                                         Optional.empty(), CloudAccount.unspecified(),
+                                         CloudResourceTags.empty(), List.of(),
+                                         deployState);
 
     }
 

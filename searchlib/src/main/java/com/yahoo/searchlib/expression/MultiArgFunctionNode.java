@@ -1,10 +1,15 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.searchlib.expression;
 
-import com.yahoo.vespa.objects.*;
+import com.yahoo.vespa.objects.Deserializer;
+import com.yahoo.vespa.objects.ObjectOperation;
+import com.yahoo.vespa.objects.ObjectPredicate;
+import com.yahoo.vespa.objects.ObjectVisitor;
+import com.yahoo.vespa.objects.Serializer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * <p>This is an abstract super-class for all functions that accepts multiple arguments. This node implements the
@@ -24,8 +29,8 @@ public abstract class MultiArgFunctionNode extends FunctionNode {
      * @param arg The argument to add.
      * @return This, to allow chaining.
      */
-    public MultiArgFunctionNode addArg(ExpressionNode arg) {
-        arg.getClass(); // throws NullPointerException
+    public final MultiArgFunctionNode addArg(ExpressionNode arg) {
+        Objects.requireNonNull(arg, "Can not add null arg"); // throws NullPointerException
         args.add(arg);
         return this;
     }
@@ -142,10 +147,7 @@ public abstract class MultiArgFunctionNode extends FunctionNode {
         if (!args.equals(rhs.args)) {
             return false;
         }
-        if (!equalsMultiArgFunction(rhs)) {
-            return false;
-        }
-        return true;
+        return equalsMultiArgFunction(rhs);
     }
 
     protected abstract boolean equalsMultiArgFunction(MultiArgFunctionNode obj);
@@ -153,7 +155,7 @@ public abstract class MultiArgFunctionNode extends FunctionNode {
     @Override
     public MultiArgFunctionNode clone() {
         MultiArgFunctionNode obj = (MultiArgFunctionNode)super.clone();
-        obj.args = new ArrayList<ExpressionNode>();
+        obj.args = new ArrayList<>();
         for (ExpressionNode node : args) {
             obj.args.add(node.clone());
         }

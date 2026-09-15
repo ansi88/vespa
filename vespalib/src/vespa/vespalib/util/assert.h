@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib::assert {
 
@@ -11,14 +11,14 @@ namespace vespalib::assert {
  * @param key
  * @return
  */
-size_t getNumAsserts(const char *key);
+size_t getNumAsserts(const char* key);
 
 /**
  * Get the filename that will be used for remembering asserts.
  * @param key
  * @return
  */
-vespalib::string getAssertLogFileName(const char *key);
+std::string getAssertLogFileName(const char* key);
 
 /**
  * If there is no record on file that this assert has failed, it will be recorded and aborted.
@@ -27,12 +27,13 @@ vespalib::string getAssertLogFileName(const char *key);
  * @param key unique name of assert
  * @param logFreq how often will a failing assert be logged.
  */
-void assertOnceOrLog(const char *expr, const char *key, size_t logFreq);
+void assertOnceOrLog(const char* expr, const char* key, size_t logFreq);
 
-}
+} // namespace vespalib::assert
 
-#define ASSERT_ONCE_OR_LOG(expr, key, freq) { \
-    if ( ! (expr) ) {                  \
-        vespalib::assert::assertOnceOrLog(#expr, key, freq); \
-    }                                  \
-}
+#define ASSERT_ONCE_OR_LOG(expr, key, freq)                      \
+    {                                                            \
+        if (!(expr)) {                                           \
+            vespalib::assert::assertOnceOrLog(#expr, key, freq); \
+        }                                                        \
+    }

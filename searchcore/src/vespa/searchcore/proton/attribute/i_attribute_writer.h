@@ -2,16 +2,19 @@
 #pragma once
 
 #include "i_attribute_manager.h"
+
 #include <vespa/searchcore/proton/feedoperation/lidvectorcontext.h>
 #include <vespa/searchlib/attribute/attributeguard.h>
-#include <vespa/searchlib/query/base.h>
 #include <vespa/searchlib/common/commit_param.h>
+#include <vespa/searchlib/query/base.h>
 
-namespace vespalib { class IDestructorCallback; }
-namespace document {
-    class DocumentUpdate;
-    class Document;
+namespace vespalib {
+class IDestructorCallback;
 }
+namespace document {
+class DocumentUpdate;
+class Document;
+} // namespace document
 
 namespace proton {
 
@@ -31,41 +34,43 @@ public:
     using DocumentIdT = search::DocumentIdT;
     using DocumentUpdate = document::DocumentUpdate;
     using Document = document::Document;
-    using OnWriteDoneType = const std::shared_ptr<vespalib::IDestructorCallback> &;
+    using OnWriteDoneType = std::shared_ptr<vespalib::IDestructorCallback>;
 
     virtual ~IAttributeWriter() = default;
 
-    virtual std::vector<search::AttributeVector *> getWritableAttributes() const = 0;
-    virtual search::AttributeVector *getWritableAttribute(const vespalib::string &attrName) const = 0;
-    virtual void put(SerialNum serialNum, const Document &doc, DocumentIdT lid, OnWriteDoneType onWriteDone) = 0;
-    virtual void remove(SerialNum serialNum, DocumentIdT lid, OnWriteDoneType onWriteDone) = 0;
-    virtual void remove(const LidVector &lidVector, SerialNum serialNum, OnWriteDoneType onWriteDone) = 0;
+    virtual std::vector<search::AttributeVector*> getWritableAttributes() const = 0;
+    virtual search::AttributeVector* getWritableAttribute(const std::string& attrName) const = 0;
+    virtual void put(SerialNum serialNum, const Document& doc, DocumentIdT lid,
+                     const OnWriteDoneType& onWriteDone) = 0;
+    virtual void remove(SerialNum serialNum, DocumentIdT lid, const OnWriteDoneType& onWriteDone) = 0;
+    virtual void remove(const LidVector& lidVector, SerialNum serialNum, const OnWriteDoneType& onWriteDone) = 0;
     /**
      * Update the underlying attributes based on the content of the given DocumentUpdate.
      * The OnWriteDoneType instance should ensure the lifetime of the given DocumentUpdate instance.
      */
-    virtual void update(SerialNum serialNum, const DocumentUpdate &upd, DocumentIdT lid,
-                        OnWriteDoneType onWriteDone, IFieldUpdateCallback & onUpdate) = 0;
+    virtual void update(SerialNum serialNum, const DocumentUpdate& upd, DocumentIdT lid,
+                        const OnWriteDoneType& onWriteDone, IFieldUpdateCallback& onUpdate) = 0;
     /*
      * Update the underlying struct field attributes based on updated document.
      */
-    virtual void update(SerialNum serialNum, const Document &doc, DocumentIdT lid, OnWriteDoneType onWriteDone) = 0;
-    virtual void heartBeat(SerialNum serialNum, OnWriteDoneType onDone) = 0;
+    virtual void update(SerialNum serialNum, const Document& doc, DocumentIdT lid,
+                        const OnWriteDoneType& onWriteDone) = 0;
+    virtual void heartBeat(SerialNum serialNum, const OnWriteDoneType& onDone) = 0;
     /**
      * Compact the lid space of the underlying attribute vectors.
      */
     virtual void compactLidSpace(uint32_t wantedLidLimit, SerialNum serialNum) = 0;
-    virtual const proton::IAttributeManager::SP &getAttributeManager() const = 0;
+    virtual const proton::IAttributeManager::SP& getAttributeManager() const = 0;
 
     /**
      * Commit all underlying attribute vectors with the given param.
      */
-    virtual void forceCommit(const CommitParam & param, OnWriteDoneType onWriteDone) = 0;
+    virtual void forceCommit(const CommitParam& param, const OnWriteDoneType& onWriteDone) = 0;
 
     virtual void onReplayDone(uint32_t docIdLimit) = 0;
-    virtual bool hasStructFieldAttribute() const = 0;
-    virtual void drain(OnWriteDoneType onWriteDone) = 0;
+    [[nodiscard]] virtual bool hasStructFieldAttribute() const = 0;
+    [[nodiscard]] virtual bool has_non_authoritative_attribute() const noexcept = 0;
+    virtual void drain(const OnWriteDoneType& onWriteDone) = 0;
 };
 
 } // namespace proton
-

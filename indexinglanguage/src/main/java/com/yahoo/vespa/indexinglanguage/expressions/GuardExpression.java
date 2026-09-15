@@ -6,7 +6,7 @@ import com.yahoo.document.DocumentType;
 import com.yahoo.document.Field;
 import com.yahoo.vespa.indexinglanguage.ExpressionConverter;
 import com.yahoo.vespa.indexinglanguage.ExpressionVisitor;
-import com.yahoo.vespa.indexinglanguage.UpdateAdapter;
+import com.yahoo.vespa.indexinglanguage.UpdateFieldValues;
 import com.yahoo.vespa.objects.ObjectOperation;
 import com.yahoo.vespa.objects.ObjectPredicate;
 
@@ -15,68 +15,78 @@ import com.yahoo.vespa.objects.ObjectPredicate;
  */
 public final class GuardExpression extends CompositeExpression {
 
-    private final Expression exp;
+    private final Expression innerExpression;
     private final boolean shouldExecute;
 
-    public GuardExpression(Expression exp) {
-        super(exp.requiredInputType());
-        this.exp = exp;
-        shouldExecute = shouldExecute(exp);
+    public GuardExpression(Expression innerExpression) {
+        this.innerExpression = innerExpression;
+        shouldExecute = shouldExecute(innerExpression);
     }
 
-    public Expression getInnerExpression() {
-        return exp;
-    }
+    @Override
+    public boolean isMutating() { return innerExpression.isMutating(); }
+
+    @Override
+    public boolean requiresInput() { return innerExpression.requiresInput(); }
+
+    public Expression getInnerExpression() { return innerExpression; }
 
     @Override
     public GuardExpression convertChildren(ExpressionConverter converter) {
-        return new GuardExpression(converter.convert(exp));
+        return new GuardExpression(converter.convert(innerExpression));
     }
 
     @Override
-    public void setStatementOutput(DocumentType documentType, Field field) {
-        exp.setStatementOutput(documentType, field);
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        super.setInputType(inputType, context);
+        return innerExpression.setInputType(inputType, context);
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        super.setOutputType(outputType, context);
+        return innerExpression.setOutputType(outputType, context);
+    }
+
+    @Override
+    protected void doResolve(TypeContext context) {
+        innerExpression.resolve(context);
     }
 
     @Override
     protected void doExecute(ExecutionContext context) {
-        if (!shouldExecute && context.getAdapter() instanceof UpdateAdapter) {
-            context.setValue(null);
+        if (!shouldExecute && context.getFieldValues() instanceof UpdateFieldValues) {
+            context.setCurrentValue(null);
         } else {
-            exp.execute(context);
+            innerExpression.execute(context);
         }
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        exp.verify(context);
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return exp.createdOutputType();
+    public void setStatementOutput(DocumentType documentType, Field field) {
+        innerExpression.setStatementOutput(documentType, field);
     }
 
     @Override
     public String toString() {
-        return "guard " + toScriptBlock(exp);
+        return "guard " + toScriptBlock(innerExpression);
     }
 
     @Override
     public void selectMembers(ObjectPredicate predicate, ObjectOperation operation) {
-         select(exp, predicate, operation);
+         select(innerExpression, predicate, operation);
     }
 
     @Override
     public boolean equals(Object obj) {
         if (!(obj instanceof GuardExpression rhs)) return false;
-        if (!exp.equals(rhs.exp)) return false;
+        if (!innerExpression.equals(rhs.innerExpression)) return false;
         return true;
     }
 
     @Override
     public int hashCode() {
-        return getClass().hashCode() + exp.hashCode();
+        return getClass().hashCode() + innerExpression.hashCode();
     }
 
     private static boolean shouldExecute(Expression exp) {

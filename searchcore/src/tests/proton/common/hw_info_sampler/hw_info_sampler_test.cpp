@@ -4,8 +4,8 @@
 #include <vespa/config/print/fileconfigwriter.h>
 #include <vespa/searchcore/proton/common/hw_info_sampler.h>
 #include <vespa/searchlib/test/directory_handler.h>
+#include <vespa/vespalib/gtest/gtest.h>
 #include <vespa/vespalib/util/size_literals.h>
-#include <vespa/vespalib/testkit/test_kit.h>
 
 using proton::HwInfoSampler;
 using search::test::DirectoryHandler;
@@ -17,111 +17,103 @@ using Config = HwInfoSampler::Config;
 
 namespace {
 
-const vespalib::string test_dir = "temp";
+const std::string  test_dir = "temp";
 constexpr uint64_t sampleLen = 40_Mi;
-constexpr bool sharedDisk = false;
+constexpr bool     sharedDisk = false;
 
-long time_point_to_long(Clock::time_point tp)
-{
+long time_point_to_long(Clock::time_point tp) {
     return std::chrono::duration_cast<std::chrono::seconds>(tp.time_since_epoch()).count();
 }
 
-}
+} // namespace
 
-struct Fixture
-{
+class HwInfoSamplerTest : public ::testing::Test {
+protected:
     DirectoryHandler _dirHandler;
 
-    Fixture()
-        : _dirHandler(test_dir)
-    {
-    }
+    HwInfoSamplerTest();
+    ~HwInfoSamplerTest() override;
+    static void SetUpTestSuite();
 
-    void writeConfig(const HwinfoConfig &config) {
+    void writeConfig(const HwinfoConfig& config) {
         config::FileConfigWriter writer(test_dir + "/hwinfo.cfg");
         ASSERT_TRUE(writer.write(config));
     }
-
 };
 
-TEST_F("Test that hw_info_sampler uses override info", Fixture)
-{
-    Config samplerCfg(0, 75.0, 100.0, sampleLen, sharedDisk, 0, 0);
+HwInfoSamplerTest::HwInfoSamplerTest() : ::testing::Test(), _dirHandler(test_dir) {
+}
+
+HwInfoSamplerTest::~HwInfoSamplerTest() = default;
+
+void HwInfoSamplerTest::SetUpTestSuite() {
+    std::filesystem::remove_all(std::filesystem::path(test_dir));
+}
+
+TEST_F(HwInfoSamplerTest, Test_that_hw_info_sampler_uses_override_info) {
+    Config        samplerCfg(0, 75.0, 100.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_EQUAL(75.0, sampler.diskWriteSpeed());
-    EXPECT_NOT_EQUAL(0l, time_point_to_long(sampler.sampleTime()));
+    EXPECT_EQ(75.0, sampler.diskWriteSpeed());
+    EXPECT_NE(0l, time_point_to_long(sampler.sampleTime()));
     EXPECT_TRUE(sampler.hwInfo().disk().slow());
 }
 
-TEST_F("Test that hw_info_sampler uses saved info", Fixture)
-{
+TEST_F(HwInfoSamplerTest, Test_that_hw_info_sampler_uses_saved_info) {
     HwinfoConfigBuilder builder;
     builder.disk.writespeed = 72.0;
     builder.disk.sampletime = time_point_to_long(Clock::now());
-    f.writeConfig(builder);
-    Config samplerCfg(0, 0.0, 70.0, sampleLen, sharedDisk, 0, 0);
+    writeConfig(builder);
+    Config        samplerCfg(0, 0.0, 70.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_EQUAL(builder.disk.writespeed, sampler.diskWriteSpeed());
-    EXPECT_EQUAL(builder.disk.sampletime, time_point_to_long(sampler.sampleTime()));
+    EXPECT_EQ(builder.disk.writespeed, sampler.diskWriteSpeed());
+    EXPECT_EQ(builder.disk.sampletime, time_point_to_long(sampler.sampleTime()));
     EXPECT_FALSE(sampler.hwInfo().disk().slow());
 }
 
-TEST_F("Test that hw_info_sampler can sample disk write speed", Fixture)
-{
-    Config samplerCfg(0, 0.0, 100.0, sampleLen, sharedDisk, 0, 0);
+TEST_F(HwInfoSamplerTest, Test_that_hw_info_sampler_can_sample_disk_write_speed) {
+    Config        samplerCfg(0, 0.0, 100.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    ASSERT_NOT_EQUAL(0.0, sampler.diskWriteSpeed());
-    ASSERT_NOT_EQUAL(0l, time_point_to_long(sampler.sampleTime()));
+    ASSERT_NE(0.0, sampler.diskWriteSpeed());
+    ASSERT_NE(0l, time_point_to_long(sampler.sampleTime()));
     HwInfoSampler sampler2(test_dir, samplerCfg);
-    EXPECT_APPROX(sampler.diskWriteSpeed(), sampler2.diskWriteSpeed(), 0.1);
-    EXPECT_EQUAL(time_point_to_long(sampler.sampleTime()),
-                 time_point_to_long(sampler2.sampleTime()));
+    EXPECT_NEAR(sampler.diskWriteSpeed(), sampler2.diskWriteSpeed(), 0.1);
+    EXPECT_EQ(time_point_to_long(sampler.sampleTime()), time_point_to_long(sampler2.sampleTime()));
 }
 
-TEST_F("require that disk size can be specified", Fixture)
-{
-    Config samplerCfg(1024, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
+TEST_F(HwInfoSamplerTest, require_that_disk_size_can_be_specified) {
+    Config        samplerCfg(1024, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_EQUAL(1024u, sampler.hwInfo().disk().sizeBytes());
+    EXPECT_EQ(1024u, sampler.hwInfo().disk().sizeBytes());
 }
 
-TEST_F("require that disk size can be sampled", Fixture)
-{
-    Config samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
+TEST_F(HwInfoSamplerTest, require_that_disk_size_can_be_sampled) {
+    Config        samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_GREATER(sampler.hwInfo().disk().sizeBytes(), 0u);
+    EXPECT_GT(sampler.hwInfo().disk().sizeBytes(), 0u);
 }
 
-TEST_F("require that memory size can be specified", Fixture)
-{
-    Config samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 1024, 0);
+TEST_F(HwInfoSamplerTest, require_that_memory_size_can_be_specified) {
+    Config        samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 1024, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_EQUAL(1024u, sampler.hwInfo().memory().sizeBytes());
+    EXPECT_EQ(1024u, sampler.hwInfo().memory().sizeBytes());
 }
 
-TEST_F("require that memory size can be sampled", Fixture)
-{
-    Config samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
+TEST_F(HwInfoSamplerTest, require_that_memory_size_can_be_sampled) {
+    Config        samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_GREATER(sampler.hwInfo().memory().sizeBytes(), 0u);
+    EXPECT_GT(sampler.hwInfo().memory().sizeBytes(), 0u);
 }
 
-TEST_F("require that num cpu cores can be specified", Fixture)
-{
-    Config samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 8);
+TEST_F(HwInfoSamplerTest, require_that_num_cpu_cores_can_be_specified) {
+    Config        samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 8);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_EQUAL(8u, sampler.hwInfo().cpu().cores());
+    EXPECT_EQ(8u, sampler.hwInfo().cpu().cores());
 }
 
-TEST_F("require that num cpu cores can be sampled", Fixture)
-{
-    Config samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
+TEST_F(HwInfoSamplerTest, require_that_num_cpu_cores_can_be_sampled) {
+    Config        samplerCfg(0, 1.0, 0.0, sampleLen, sharedDisk, 0, 0);
     HwInfoSampler sampler(test_dir, samplerCfg);
-    EXPECT_GREATER(sampler.hwInfo().cpu().cores(), 0u);
+    EXPECT_GT(sampler.hwInfo().cpu().cores(), 0u);
 }
 
-TEST_MAIN()
-{
-    std::filesystem::remove_all(std::filesystem::path(test_dir));
-    TEST_RUN_ALL();
-}
+GTEST_MAIN_RUN_ALL_TESTS()

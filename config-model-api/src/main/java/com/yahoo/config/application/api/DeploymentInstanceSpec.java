@@ -4,8 +4,10 @@ package com.yahoo.config.application.api;
 import com.yahoo.config.provision.AthenzService;
 import com.yahoo.config.provision.CloudAccount;
 import com.yahoo.config.provision.CloudName;
+import com.yahoo.config.provision.CloudResourceTags;
 import com.yahoo.config.provision.ClusterSpec;
 import com.yahoo.config.provision.Environment;
+import com.yahoo.config.provision.HeapDumpRedaction;
 import com.yahoo.config.provision.InstanceName;
 import com.yahoo.config.provision.RegionName;
 import com.yahoo.config.provision.Tags;
@@ -14,6 +16,7 @@ import com.yahoo.config.provision.zone.ZoneId;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,7 +43,7 @@ import static com.yahoo.config.provision.Environment.prod;
  *
  * @author bratseth
  */
-public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
+public final class DeploymentInstanceSpec extends DeploymentSpec.Steps {
 
     /** The maximum number of consecutive days Vespa upgrades are allowed to be blocked */
     private static final int maxUpgradeBlockingDays = 21;
@@ -60,10 +63,13 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     private final Optional<AthenzService> athenzService;
     private final Map<CloudName, CloudAccount> cloudAccounts;
     private final Optional<Duration> hostTTL;
+    private final CloudResourceTags cloudResourceTags;
+    private final Optional<HeapDumpRedaction> heapDumpRedaction;
     private final Notifications notifications;
     private final List<Endpoint> endpoints;
     private final Map<ClusterSpec.Id, Map<ZoneId, ZoneEndpoint>> zoneEndpoints;
     private final Bcp bcp;
+    private final Optional<DeploymentSpec.BackupSpec> backup;
 
     public DeploymentInstanceSpec(InstanceName name,
                                   Tags tags,
@@ -77,10 +83,13 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
                                   Optional<AthenzService> athenzService,
                                   Map<CloudName, CloudAccount> cloudAccounts,
                                   Optional<Duration> hostTTL,
+                                  CloudResourceTags cloudResourceTags,
+                                  Optional<HeapDumpRedaction> heapDumpRedaction,
                                   Notifications notifications,
                                   List<Endpoint> endpoints,
                                   Map<ClusterSpec.Id, Map<ZoneId, ZoneEndpoint>> zoneEndpoints,
                                   Bcp bcp,
+                                  Optional<DeploymentSpec.BackupSpec> backup,
                                   Instant now) {
         super(steps);
         this.name = Objects.requireNonNull(name);
@@ -100,12 +109,15 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
         this.athenzService = Objects.requireNonNull(athenzService);
         this.cloudAccounts = Map.copyOf(cloudAccounts);
         this.hostTTL = Objects.requireNonNull(hostTTL);
+        this.cloudResourceTags = Objects.requireNonNull(cloudResourceTags);
+        this.heapDumpRedaction = Objects.requireNonNull(heapDumpRedaction);
         this.notifications = Objects.requireNonNull(notifications);
         this.endpoints = List.copyOf(Objects.requireNonNull(endpoints));
         Map<ClusterSpec.Id, Map<ZoneId, ZoneEndpoint>> zoneEndpointsCopy =  new HashMap<>();
         for (var entry : zoneEndpoints.entrySet()) zoneEndpointsCopy.put(entry.getKey(), Collections.unmodifiableMap(new HashMap<>(entry.getValue())));
         this.zoneEndpoints = Collections.unmodifiableMap(zoneEndpointsCopy);
         this.bcp = Objects.requireNonNull(bcp);
+        this.backup = Objects.requireNonNull(backup);
         validateZones(new HashSet<>(), new HashSet<>(), this);
         validateEndpoints(this.endpoints);
         validateChangeBlockers(changeBlockers, now);
@@ -115,8 +127,7 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
 
     public InstanceName name() { return name; }
 
-    // TODO: make package private after 8.370 is gone.
-    public Tags tags() { return tags; }
+    Tags tags() { return tags; }
 
     /**
      * Throws an IllegalArgumentException if any production deployment or test is declared multiple times,
@@ -185,10 +196,13 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     private void validateChangeBlockers(List<DeploymentSpec.ChangeBlocker> changeBlockers, Instant now) {
         // Find all possible dates an upgrade block window can start
         Stream<Instant> blockingFrom = changeBlockers.stream()
-                                                     .filter(blocker -> blocker.blocksVersions())
-                                                     .map(blocker -> blocker.window())
+                                                     .filter(DeploymentSpec.ChangeBlocker::blocksVersions)
+                                                     .map(DeploymentSpec.ChangeBlocker::window)
                                                      .map(window -> window.dateRange().start()
-                                                                          .map(date -> date.atStartOfDay(window.zone())
+                                                                          .map(date -> date.atTime(window.dateRange()
+                                                                                                          .startTime()
+                                                                                                          .orElse(LocalTime.MIN))
+                                                                                           .atZone(window.zone())
                                                                                            .toInstant())
                                                                           .orElse(now))
                                                      .distinct();
@@ -221,7 +235,7 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     /** Returns the revision change strategy of this, which is {@link DeploymentSpec.RevisionChange#whenFailing} by default */
     public DeploymentSpec.RevisionChange revisionChange() { return revisionChange; }
 
-    /** Returns the upgrade rollout strategy of this, which is {@link DeploymentSpec.UpgradeRollout#separate} by default */
+    /** Returns the upgrade rollout strategy of this, which is {@link DeploymentSpec.UpgradeRollout#simultaneous} by default */
     public DeploymentSpec.UpgradeRollout upgradeRollout() { return upgradeRollout; }
 
     /** Minimum cumulative, enqueued risk required for a new revision to roll out to this instance. 0 by default. */
@@ -236,18 +250,21 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     /** Returns time windows where upgrades are disallowed for these instances */
     public List<DeploymentSpec.ChangeBlocker> changeBlocker() { return changeBlockers; }
 
-    // TODO(mpolden): Remove after Vespa < 8.203 is no longer in use
-    public Optional<String> globalServiceId() { return Optional.empty(); }
-
     /** Returns whether the instances in this step can upgrade at the given instant */
     public boolean canUpgradeAt(Instant instant) {
-        return changeBlockers.stream().filter(block -> block.blocksVersions())
+        return changeBlockers.stream().filter(DeploymentSpec.ChangeBlocker::blocksVersions)
                                       .noneMatch(block -> block.window().includes(instant));
     }
 
     /** Returns whether an application revision change for these instances can occur at the given instant */
     public boolean canChangeRevisionAt(Instant instant) {
-        return changeBlockers.stream().filter(block -> block.blocksRevisions())
+        return changeBlockers.stream().filter(DeploymentSpec.ChangeBlocker::blocksRevisions)
+                             .noneMatch(block -> block.window().includes(instant));
+    }
+
+    /** Returns whether maintenance can be performed on these instances at the given instant */
+    public boolean canPerformMaintenanceAt(Instant instant) {
+        return changeBlockers.stream().filter(DeploymentSpec.ChangeBlocker::blocksMaintenance)
                              .noneMatch(block -> block.window().includes(instant));
     }
 
@@ -269,6 +286,22 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
                       .orElse(cloudAccounts);
     }
 
+    /** Returns the cloud resource tags for this instance. */
+    public CloudResourceTags cloudResourceTags() { return cloudResourceTags; }
+
+    /** Returns the cloud resource tags for the given environment and region, merged with zone-specific tags. */
+    public CloudResourceTags cloudResourceTags(Environment environment, RegionName region) {
+        CloudResourceTags zoneTags = zones().stream()
+                                            .filter(zone -> zone.concerns(environment, Optional.of(region)))
+                                            .findFirst()
+                                            .map(DeploymentSpec.DeclaredZone::cloudResourceTags)
+                                            .orElse(CloudResourceTags.empty());
+        return cloudResourceTags.mergedWith(zoneTags);
+    }
+
+    /** Returns the heap dump redaction level set on this instance, if any. */
+    public Optional<HeapDumpRedaction> heapDumpRedaction() { return heapDumpRedaction; }
+
     /** Returns the host TTL to use for given environment and region, if any */
     public Optional<Duration> hostTTL(Environment environment, Optional<RegionName> region) {
         return zones().stream()
@@ -287,6 +320,9 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     /** Returns the BCP spec of this instance, or BcpSpec.empty() if none. */
     public Bcp bcp() { return bcp; }
 
+    /** Returns the backup configuration for this instance, if any. */
+    public Optional<DeploymentSpec.BackupSpec> backup() { return backup; }
+
     /** Returns whether this instance deploys to the given zone, either implicitly or explicitly */
     public boolean deploysTo(Environment environment, RegionName region) {
         return zones().stream().anyMatch(zone -> zone.concerns(environment, Optional.ofNullable(region)));
@@ -302,6 +338,11 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
     /** Returns the zone endpoint data for this instance. */
     Map<ClusterSpec.Id, Map<ZoneId, ZoneEndpoint>> zoneEndpoints() {
         return zoneEndpoints;
+    }
+
+    /** The container cluster ids targeted by zone and private endpoints. */
+    public Set<ClusterSpec.Id> zoneEndpointClusters() {
+        return zoneEndpoints.keySet();
     }
 
     /** The zone endpoints in the given zone, possibly default values. */
@@ -326,12 +367,13 @@ public class DeploymentInstanceSpec extends DeploymentSpec.Steps {
                endpoints.equals(other.endpoints) &&
                zoneEndpoints.equals(other.zoneEndpoints) &&
                bcp.equals(other.bcp) &&
+               backup.equals(other.backup) &&
                tags.equals(other.tags);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(upgradePolicy, revisionTarget, upgradeRollout, changeBlockers, steps(), athenzService, notifications, endpoints, zoneEndpoints, bcp, tags);
+        return Objects.hash(upgradePolicy, revisionTarget, upgradeRollout, changeBlockers, steps(), athenzService, notifications, endpoints, zoneEndpoints, bcp, backup, tags);
     }
 
     int deployableHashCode() {

@@ -11,29 +11,23 @@ import static com.yahoo.language.LinguisticsCase.toLowerCase;
  */
 public final class LowerCaseExpression extends Expression {
 
-    public LowerCaseExpression() {
-        super(DataType.STRING);
+    @Override
+    public DataType setInputType(DataType inputType, TypeContext context) {
+        return super.setInputType(inputType, DataType.STRING, context);
+    }
+
+    @Override
+    public DataType setOutputType(DataType outputType, TypeContext context) {
+        return super.setOutputType(DataType.STRING, outputType, null, context);
     }
 
     @Override
     protected void doExecute(ExecutionContext context) {
-        context.setValue(new StringFieldValue(toLowerCase(String.valueOf(context.getValue()))));
+        context.setCurrentValue(new StringFieldValue(toLowerCase(String.valueOf(context.getCurrentValue()))));
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        context.setValueType(createdOutputType());
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return DataType.STRING;
-    }
-
-    @Override
-    public String toString() {
-        return "lowercase";
-    }
+    public String toString() { return "lowercase"; }
 
     @Override
     public boolean equals(Object obj) {

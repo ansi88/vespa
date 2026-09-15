@@ -10,15 +10,15 @@ import com.yahoo.vespa.indexinglanguage.expressions.ScriptExpression;
 import com.yahoo.vespa.indexinglanguage.expressions.SummaryExpression;
 
 /**
- * This class wraps an indexing script expression, with some helper
- * methods for extracting information from it
+ * This class wraps an indexing script expression, with some helper methods for extracting information from it.
+ *
  * @author arnej27959
- **/
-class ParsedIndexingOp {
+ */
+public class ParsedIndexingOp {
 
     private final ScriptExpression script;
 
-    ParsedIndexingOp(ScriptExpression script) {
+    public ParsedIndexingOp(ScriptExpression script) {
         this.script = script;
     }
 
@@ -34,4 +34,5 @@ class ParsedIndexingOp {
         var expr = searcher.searchIn(script);
         return (expr != null);
     }
+
 }

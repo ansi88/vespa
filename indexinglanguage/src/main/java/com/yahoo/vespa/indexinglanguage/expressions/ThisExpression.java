@@ -1,16 +1,13 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.vespa.indexinglanguage.expressions;
 
-import com.yahoo.document.DataType;
-
 /**
  * @author Simon Thoresen Hult
  */
 public final class ThisExpression extends Expression {
 
-    public ThisExpression() {
-        super(UnresolvedDataType.INSTANCE);
-    }
+    @Override
+    public boolean isMutating() { return false; }
 
     @Override
     protected void doExecute(ExecutionContext context) {
@@ -18,19 +15,7 @@ public final class ThisExpression extends Expression {
     }
 
     @Override
-    protected void doVerify(VerificationContext context) {
-        // empty
-    }
-
-    @Override
-    public DataType createdOutputType() {
-        return UnresolvedDataType.INSTANCE;
-    }
-
-    @Override
-    public String toString() {
-        return "this";
-    }
+    public String toString() { return "this"; }
 
     @Override
     public boolean equals(Object obj) {

@@ -3,13 +3,11 @@ package com.yahoo.config.provision.serialization;
 
 import com.yahoo.component.Version;
 import com.yahoo.config.provision.AllocatedHosts;
+import com.yahoo.config.provision.AzName;
 import com.yahoo.config.provision.ClusterMembership;
 import com.yahoo.config.provision.DockerImage;
 import com.yahoo.config.provision.HostSpec;
 import com.yahoo.config.provision.NodeResources;
-import com.yahoo.config.provision.ZoneEndpoint;
-import com.yahoo.config.provision.ZoneEndpoint.AllowedUrn;
-import com.yahoo.config.provision.ZoneEndpoint.AccessType;
 import com.yahoo.slime.ArrayTraverser;
 import com.yahoo.slime.Cursor;
 import com.yahoo.slime.Inspector;
@@ -22,16 +20,14 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * The hosts allocated to an application.
- * This can be serialized to/from JSON.
- * This is immutable.
+ * Serialization of the hosts allocated to an application.
  *
  * @author Ulf Lilleengen
  * @author bratseth
  */
 public class AllocatedHostsSerializer {
 
-    // WARNING: Since there are multiple servers in a ZooKeeper cluster and they upgrade one by one
+    // WARNING: Since there are multiple servers in a ZooKeeper cluster, and they upgrade one by one
     //          (and rewrite all nodes on startup), changes to the serialized format must be made
     //          such that what is serialized on version N+1 can be read by version N:
     //          - ADDING FIELDS: Always ok
@@ -42,12 +38,6 @@ public class AllocatedHostsSerializer {
     private static final String hostSpecKey = "hostSpec";
     private static final String hostSpecHostNameKey = "hostName";
     private static final String hostSpecMembershipKey = "membership";
-    private static final String loadBalancerSettingsKey = "zoneEndpoint";
-    private static final String publicField = "public";
-    private static final String privateField = "private";
-    private static final String allowedUrnsField = "allowedUrns";
-    private static final String accessTypeField = "type";
-    private static final String urnField = "urn";
 
     private static final String realResourcesKey = "realResources";
     private static final String advertisedResourcesKey = "advertisedResources";
@@ -60,6 +50,7 @@ public class AllocatedHostsSerializer {
     private static final String storageTypeKey = "storageType";
     private static final String architectureKey = "architecture";
     private static final String gpuKey = "gpu";
+    private static final String gpuTypeKey = "gpuType";
     private static final String gpuCountKey = "gpuCount";
     private static final String gpuMemoryKey = "gpuMemory";
 
@@ -72,7 +63,7 @@ public class AllocatedHostsSerializer {
     /** Current version */
     private static final String hostSpecCurrentVespaVersionKey = "currentVespaVersion";
     private static final String hostSpecNetworkPortsKey = "ports";
-
+    private static final String availabilityZoneKey = "az";
 
     public static byte[] toJson(AllocatedHosts allocatedHosts) throws IOException {
         Slime slime = new Slime();
@@ -90,16 +81,15 @@ public class AllocatedHostsSerializer {
         object.setString(hostSpecHostNameKey, host.hostname());
         host.membership().ifPresent(membership -> {
             object.setString(hostSpecMembershipKey, membership.stringValue());
-            object.setString(hostSpecVespaVersionKey, membership.cluster().vespaVersion().toFullString());
-            if ( ! membership.cluster().zoneEndpoint().isDefault())
-                toSlime(object.setObject(loadBalancerSettingsKey), membership.cluster().zoneEndpoint());
-            membership.cluster().dockerImageRepo().ifPresent(repo -> object.setString(hostSpecDockerImageRepoKey, repo.untagged()));
+            object.setString(hostSpecVespaVersionKey, Version.emptyVersion.toString()); // TODO: Remove after Sept 2026
         });
         toSlime(host.realResources(), object.setObject(realResourcesKey));
         toSlime(host.advertisedResources(), object.setObject(advertisedResourcesKey));
         host.requestedResources().ifPresent(resources -> toSlime(resources, object.setObject(requestedResourcesKey)));
         host.version().ifPresent(version -> object.setString(hostSpecCurrentVespaVersionKey, version.toFullString()));
         host.networkPorts().ifPresent(ports -> NetworkPortsSerializer.toSlime(ports, object.setArray(hostSpecNetworkPortsKey)));
+        object.setString(availabilityZoneKey, host.availabilityZone().value());
+        host.dockerImageRepo().ifPresent(repo -> object.setString(hostSpecDockerImageRepoKey, repo.untagged()));
     }
 
     private static void toSlime(NodeResources resources, Cursor resourcesObject) {
@@ -112,6 +102,7 @@ public class AllocatedHostsSerializer {
         resourcesObject.setString(architectureKey, architectureToString(resources.architecture()));
         if (!resources.gpuResources().isDefault()) {
             Cursor gpuObject = resourcesObject.setObject(gpuKey);
+            gpuObject.setString(gpuTypeKey, resources.gpuResources().type().toString());
             gpuObject.setLong(gpuCountKey, resources.gpuResources().count());
             gpuObject.setDouble(gpuMemoryKey, resources.gpuResources().memoryGiB());
         }
@@ -139,7 +130,8 @@ public class AllocatedHostsSerializer {
                                 membershipFromSlime(object),
                                 optionalString(object.field(hostSpecCurrentVespaVersionKey)).map(Version::new),
                                 NetworkPortsSerializer.fromSlime(object.field(hostSpecNetworkPortsKey)),
-                                optionalDockerImage(object.field(hostSpecDockerImageRepoKey)));
+                                optionalDockerImage(object.field(hostSpecDockerImageRepoKey)),
+                                availabilityZone(object.field(availabilityZoneKey)));
         }
         else {
             return new HostSpec(object.field(hostSpecHostNameKey).asString(),
@@ -160,7 +152,8 @@ public class AllocatedHostsSerializer {
 
     private static NodeResources.GpuResources gpuResourcesFromSlime(Inspector gpu) {
         if (!gpu.valid()) return NodeResources.GpuResources.getDefault();
-        return new NodeResources.GpuResources((int) gpu.field(gpuCountKey).asLong(),
+        return new NodeResources.GpuResources(gpu.field(gpuTypeKey).asString(),
+                                              (int) gpu.field(gpuCountKey).asLong(),
                                               gpu.field(gpuMemoryKey).asDouble());
     }
 
@@ -222,54 +215,22 @@ public class AllocatedHostsSerializer {
     }
 
     private static ClusterMembership membershipFromSlime(Inspector object) {
-        return ClusterMembership.from(object.field(hostSpecMembershipKey).asString(),
-                                      Version.fromString(object.field(hostSpecVespaVersionKey).asString()),
-                                      object.field(hostSpecDockerImageRepoKey).valid()
-                                      ? Optional.of(DockerImage.fromString(object.field(hostSpecDockerImageRepoKey).asString()))
-                                      : Optional.empty(),
-                                      zoneEndpoint(object.field(loadBalancerSettingsKey)));
-    }
-
-    private static void toSlime(Cursor settingsObject, ZoneEndpoint settings) {
-        settingsObject.setBool(publicField, settings.isPublicEndpoint());
-        settingsObject.setBool(privateField, settings.isPrivateEndpoint());
-        if (settings.isPrivateEndpoint()) {
-            Cursor allowedUrnsArray = settingsObject.setArray(allowedUrnsField);
-            for (AllowedUrn urn : settings.allowedUrns()) {
-                Cursor urnObject = allowedUrnsArray.addObject();
-                urnObject.setString(urnField, urn.urn());
-                urnObject.setString(accessTypeField,
-                                    switch (urn.type()) {
-                                        case awsPrivateLink -> "awsPrivateLink";
-                                        case gcpServiceConnect -> "gcpServiceConnect";
-                                    });
-            }
-        }
-    }
-
-    private static ZoneEndpoint zoneEndpoint(Inspector settingsObject) {
-        if ( ! settingsObject.valid()) return ZoneEndpoint.defaultEndpoint;
-        return new ZoneEndpoint(settingsObject.field(publicField).asBool(),
-                                settingsObject.field(privateField).asBool(),
-                                SlimeUtils.entriesStream(settingsObject.field(allowedUrnsField))
-                                          .map(urnObject -> new AllowedUrn(switch (urnObject.field(accessTypeField).asString()) {
-                                                                               case "awsPrivateLink" ->  AccessType.awsPrivateLink;
-                                                                               case "gcpServiceConnect" -> AccessType.gcpServiceConnect;
-                                                                               default -> throw new IllegalArgumentException("unknown service access type in '" + urnObject + "'");
-                                                                           },
-                                                                           urnObject.field(urnField).asString()))
-                                          .toList());
-    }
-
-
-    private static Optional<String> optionalString(Inspector inspector) {
-        if ( ! inspector.valid()) return Optional.empty();
-        return Optional.of(inspector.asString());
+        return ClusterMembership.from(object.field(hostSpecMembershipKey).asString());
     }
 
     private static Optional<DockerImage> optionalDockerImage(Inspector inspector) {
         if ( ! inspector.valid()) return Optional.empty();
         return Optional.of(DockerImage.fromString(inspector.asString()));
+    }
+
+    private static AzName availabilityZone(Inspector inspector) {
+        if ( ! inspector.valid()) return AzName.defaultName(); // TODO: Remove after August 2026
+        return AzName.from(inspector.asString());
+    }
+
+    private static Optional<String> optionalString(Inspector inspector) {
+        if ( ! inspector.valid()) return Optional.empty();
+        return Optional.of(inspector.asString());
     }
 
 }

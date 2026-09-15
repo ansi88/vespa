@@ -8,7 +8,7 @@ import com.yahoo.vespa.model.container.ApplicationContainerCluster;
 import com.yahoo.vespa.model.container.ContainerModel;
 import com.yahoo.vespa.model.container.component.ConnectionLogComponent;
 import com.yahoo.vespa.model.container.configserver.ConfigserverCluster;
-import com.yahoo.vespa.model.container.configserver.option.CloudConfigOptions;
+import com.yahoo.vespa.model.container.configserver.option.ConfigOptions;
 import org.w3c.dom.Element;
 
 /**
@@ -18,9 +18,9 @@ import org.w3c.dom.Element;
  */
 public class ConfigServerContainerModelBuilder extends ContainerModelBuilder {
 
-    private final CloudConfigOptions options;
+    private final ConfigOptions options;
 
-    public ConfigServerContainerModelBuilder(CloudConfigOptions options) {
+    public ConfigServerContainerModelBuilder(ConfigOptions options) {
         super(true, Networking.enable);
         this.options = options;
     }
@@ -28,12 +28,12 @@ public class ConfigServerContainerModelBuilder extends ContainerModelBuilder {
     @Override
     public void doBuild(ContainerModel model, Element spec, ConfigModelContext modelContext) {
         ConfigserverCluster cluster = new ConfigserverCluster(modelContext.getParentProducer(), "configserver",
-                                                              options);
+                                                              options, modelContext.featureFlags());
         super.doBuild(model, spec, modelContext.withParent(cluster));
         cluster.setContainerCluster(model.getCluster());
     }
 
-    // Need to override this method since we need to use the values in CloudConfigOptions (the ones
+    // Need to override this method since we need to use the values in ConfigOptions (the ones
     // in ConfigModelContext.DeployState.properties are not set)
     @Override
     protected void addStatusHandlers(ApplicationContainerCluster cluster, boolean isHostedVespa) {
@@ -52,10 +52,10 @@ public class ConfigServerContainerModelBuilder extends ContainerModelBuilder {
     }
 
     @Override
-    protected void addModelEvaluationRuntime(ApplicationContainerCluster cluster) {
+    protected void addModelEvaluationRuntime(DeployState deployState, ApplicationContainerCluster cluster) {
         // Model evaluation bundles are pre-installed in the standalone container.
     }
 
-    /** Note: using {@link CloudConfigOptions} as {@link DeployState#isHosted()} returns <em>false</em> for hosted configserver/controller */
+    /** Note: using {@link ConfigOptions} as {@link DeployState#isHosted()} returns <em>false</em> for hosted configserver/controller */
     private boolean isHosted() { return options.hostedVespa().orElse(Boolean.FALSE); }
 }

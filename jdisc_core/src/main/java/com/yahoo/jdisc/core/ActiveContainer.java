@@ -33,6 +33,7 @@ public class ActiveContainer extends AbstractResource implements CurrentContaine
     private final BindingSetSelector bindingSetSelector;
     private final TimeoutManagerImpl timeoutMgr;
 
+    @SuppressWarnings("this-escape")
     public ActiveContainer(ContainerBuilder builder) {
         serverProviders = builder.serverProviders().activate();
         serverProviders.forEach(resourceReferences::retain);
@@ -76,6 +77,8 @@ public class ActiveContainer extends AbstractResource implements CurrentContaine
     public ContainerTermination shutdown() {
         return termination;
     }
+
+    ResourcePool resourcePool() { return resourceReferences; }
 
     public Injector guiceInjector() {
         return guiceInjector;

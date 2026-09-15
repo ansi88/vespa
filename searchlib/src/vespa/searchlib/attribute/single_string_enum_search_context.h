@@ -4,6 +4,7 @@
 
 #include "single_enum_search_context.h"
 #include "string_search_context.h"
+
 #include <vespa/vespalib/fuzzy/fuzzy_matching_algorithm.h>
 
 namespace search::attribute {
@@ -12,16 +13,14 @@ namespace search::attribute {
  * SingleStringEnumSearchContext handles the creation of search iterators for
  * a query term on a single value string enumerated attribute vector.
  */
-class SingleStringEnumSearchContext : public SingleEnumSearchContext<const char*, StringSearchContext>
-{
+template <typename Matcher>
+class SingleStringEnumSearchContextT : public SingleEnumSearchContext<const char*, StringSearchContextT<Matcher>> {
 public:
-    SingleStringEnumSearchContext(std::unique_ptr<QueryTermSimple> qTerm, bool cased,
-                                  vespalib::FuzzyMatchingAlgorithm fuzzy_matching_algorithm,
-                                  const AttributeVector& toBeSearched,
-                                  EnumIndices enum_indices,
-                                  const EnumStoreT<const char*>& enum_store);
-    SingleStringEnumSearchContext(SingleStringEnumSearchContext&&) noexcept;
-    ~SingleStringEnumSearchContext() override;
+    SingleStringEnumSearchContextT(Matcher&& matcher, const AttributeVector& toBeSearched,
+                                   typename SingleStringEnumSearchContextT::EnumIndices enum_indices,
+                                   const EnumStoreT<const char*>&                       enum_store);
+    SingleStringEnumSearchContextT(SingleStringEnumSearchContextT&&) noexcept;
+    ~SingleStringEnumSearchContextT() override;
 };
 
-}
+} // namespace search::attribute

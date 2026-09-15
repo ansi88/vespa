@@ -15,11 +15,16 @@ import com.yahoo.prelude.query.BlockItem;
 import com.yahoo.prelude.query.CompositeItem;
 import com.yahoo.prelude.query.HasIndexItem;
 import com.yahoo.prelude.query.Item;
+import com.yahoo.prelude.query.NearItem;
+import com.yahoo.prelude.query.ONearItem;
+import com.yahoo.prelude.query.OrItem;
 import com.yahoo.prelude.query.PhraseItem;
 import com.yahoo.prelude.query.SegmentItem;
 import com.yahoo.prelude.query.Substring;
 import com.yahoo.prelude.query.TermItem;
+import com.yahoo.prelude.query.WeakAndItem;
 import com.yahoo.prelude.query.WordItem;
+import com.yahoo.processing.request.CompoundName;
 import com.yahoo.search.Query;
 import com.yahoo.search.Result;
 import com.yahoo.search.Searcher;
@@ -43,6 +48,8 @@ import static com.yahoo.language.LinguisticsCase.toLowerCase;
  */
 @After(JUNIPER_TAG_REPLACING)
 public class NGramSearcher extends Searcher {
+
+    private static final CompoundName gramMatch = CompoundName.from("gram.match");
 
     private final GramSplitter gramSplitter;
 
@@ -79,7 +86,7 @@ public class NGramSearcher extends Searcher {
     private boolean rewriteToNGramMatching(Item item, int indexInParent, IndexFacts.Session indexFacts, Query query) {
         boolean rewritten = false;
         if (item instanceof SegmentItem segments) { // handle CJK segmented terms which should be grams instead
-            Index index = indexFacts.getIndex(segments.getIndexName());
+            Index index = indexFacts.getIndex(segments.getFieldName());
             if (index.isNGram()) {
                 Item grams = splitToGrams(segments, toLowerCase(segments.getRawWord()), index.getGramSize(), query);
                 replaceItemByGrams(item, grams, indexInParent);
@@ -91,9 +98,9 @@ public class NGramSearcher extends Searcher {
                 rewritten = rewriteToNGramMatching(composite.getItem(i), i, indexFacts, query) || rewritten;
         }
         else if (item instanceof TermItem term) {
-            Index index = indexFacts.getIndex(term.getIndexName());
+            Index index = indexFacts.getIndex(term.getFieldName());
             if (index.isNGram()) {
-                Item grams = splitToGrams(term,term.stringValue(), index.getGramSize(), query);
+                Item grams = splitToGrams(term, term.stringValue(), index.getGramSize(), query);
                 replaceItemByGrams(item, grams, indexInParent);
                 rewritten = true;
             }
@@ -115,6 +122,7 @@ public class NGramSearcher extends Searcher {
         String index = ((HasIndexItem)term).getIndexName();
         CompositeItem gramsItem = createGramRoot((HasIndexItem)term, query);
         gramsItem.setIndexName(index);
+        gramsItem.setWeight(term.getWeight());
         Substring origin = ((BlockItem)term).getOrigin();
         for (Iterator<GramSplitter.Gram> i = getGramSplitter().split(text, gramSize); i.hasNext(); ) {
             GramSplitter.Gram gram = i.next();
@@ -123,7 +131,7 @@ public class NGramSearcher extends Searcher {
             gramWord.setProtected(true);
             gramsItem.addItem(gramWord);
         }
-        return gramsItem.getItemCount() == 1 ? gramsItem.getItem(0) : gramsItem; // return the AndItem, or just the single gram if not multiple
+        return gramsItem.getItemCount() == 1 ? gramsItem.getItem(0) : gramsItem;
     }
 
     /**
@@ -151,7 +159,16 @@ public class NGramSearcher extends Searcher {
 
     /** Creates the root of the query subtree without access to the term being replaced. */
     protected CompositeItem createGramRoot(Query query) {
-        return new AndItem();
+        return switch (query.properties().getString(gramMatch, "all")) {
+            case "all" -> new AndItem();
+            case "any" -> new OrItem();
+            case "weakAnd" -> new WeakAndItem();
+            case "phrase" -> new PhraseItem();
+            case "near" -> new NearItem();
+            case "onear" -> new ONearItem();
+            default -> throw new IllegalArgumentException("Invalid gram.match value '" + query.properties().getString(gramMatch) +
+                                                          "'. Must be 'all', 'any', 'weakAnd', 'phrase', 'near' or 'onear'");
+        };
     }
 
     private void replaceItemByGrams(Item item, Item grams, int indexInParent) {

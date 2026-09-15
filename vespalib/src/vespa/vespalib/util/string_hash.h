@@ -2,15 +2,14 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace vespalib {
 
 /**
  * simple string hashing function similar to the one used by Java.
  **/
-double hash2d(const char *str, size_t len);
+double hash2d(const char* str, size_t len);
 double hash2d(std::string_view str);
 
 } // namespace vespalib
-

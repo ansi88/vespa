@@ -5,28 +5,31 @@ import com.yahoo.vespa.config.server.ApplicationRepository;
 import com.yahoo.vespa.curator.Curator;
 
 import java.time.Duration;
-import java.util.logging.Level;
 
 /**
- * Removes expired sessions
- * <p>
- * Note: Unit test is in ApplicationRepositoryTest
+ * Removes expired config sessions
  *
  * @author hmusum
  */
 public class SessionsMaintainer extends ConfigServerMaintainer {
 
+    private final int maxSessionsToDelete;
+
     SessionsMaintainer(ApplicationRepository applicationRepository, Curator curator, Duration interval) {
         super(applicationRepository, curator, applicationRepository.flagSource(), applicationRepository.clock(),
               interval, true, true);
+        this.maxSessionsToDelete = 50;
+    }
+
+    SessionsMaintainer(ApplicationRepository applicationRepository, Curator curator, Duration interval, int maxSessionsToDelete) {
+        super(applicationRepository, curator, applicationRepository.flagSource(), applicationRepository.clock(),
+                interval, true, true);
+        this.maxSessionsToDelete = maxSessionsToDelete;
     }
 
     @Override
     protected double maintain() {
-        applicationRepository.deleteExpiredLocalSessions();
-
-        int deleted = applicationRepository.deleteExpiredRemoteSessions();
-        log.log(Level.FINE, () -> "Deleted " + deleted + " expired remote sessions");
+        applicationRepository.deleteExpiredSessions(maxSessionsToDelete);
 
         return 1.0;
     }

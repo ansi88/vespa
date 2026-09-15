@@ -2,19 +2,19 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
+#include <string>
 
 namespace juniper::separators {
 
 // Separators used in strings passed to juniper.
 
 // UTF-8 encoded separarators
-extern vespalib::string interlinear_annotation_anchor_string;
-extern vespalib::string interlinear_annotation_separator_string;
-extern vespalib::string interlinear_annotation_terminator_string;
-extern vespalib::string group_separator_string;
-extern vespalib::string record_separator_string;
-extern vespalib::string unit_separator_string;
+extern std::string interlinear_annotation_anchor_string;
+extern std::string interlinear_annotation_separator_string;
+extern std::string interlinear_annotation_terminator_string;
+extern std::string group_separator_string;
+extern std::string record_separator_string;
+extern std::string unit_separator_string;
 
 // UTF-32 separators
 constexpr char32_t interlinear_annotation_anchor = U'\xfff9';
@@ -28,6 +28,6 @@ constexpr char8_t group_separator = u8'\x1d';
 constexpr char8_t record_separator = u8'\x1e';
 
 // The US character used to separate words in CJK texts
-constexpr char8_t unit_separator  = u8'\x1f';
+constexpr char8_t unit_separator = u8'\x1f';
 
-}
+} // namespace juniper::separators

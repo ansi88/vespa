@@ -3,7 +3,9 @@
 #pragma once
 
 #include "node_supported_features.h"
+
 #include <vespa/vespalib/stllike/hash_map.h>
+
 #include <memory>
 
 namespace storage::distributor {
@@ -16,7 +18,10 @@ namespace storage::distributor {
  */
 class NodeSupportedFeaturesRepo {
     const vespalib::hash_map<uint16_t, NodeSupportedFeatures> _node_features;
+    const NodeSupportedFeatures                               _supported_by_all_nodes;
+
     struct PrivateCtorTag {};
+
 public:
     NodeSupportedFeaturesRepo();
 
@@ -27,6 +32,10 @@ public:
     // with all features unset if node has no known mapping.
     [[nodiscard]] const NodeSupportedFeatures& node_supported_features(uint16_t node_idx) const noexcept;
 
+    [[nodiscard]] const NodeSupportedFeatures& supported_by_all_nodes() const noexcept {
+        return _supported_by_all_nodes;
+    }
+
     // Returns a new repo instance containing the union key->features set of self and node_features.
     // If there is a duplicate mapping between the two, the features in node_features take precedence
     // and will be stored in the new repo.
@@ -34,4 +43,4 @@ public:
     make_union_of(const vespalib::hash_map<uint16_t, NodeSupportedFeatures>& node_features) const;
 };
 
-}
+} // namespace storage::distributor

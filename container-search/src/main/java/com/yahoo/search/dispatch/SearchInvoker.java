@@ -1,15 +1,22 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.dispatch;
 
+import ai.vespa.telemetry.api.trace.OtelTracing;
+import ai.vespa.telemetry.api.trace.TraceAttributes;
+import com.yahoo.prelude.cluster.ClusterSearcher;
 import com.yahoo.search.Query;
 import com.yahoo.search.Result;
 import com.yahoo.search.dispatch.searchcluster.Node;
 import com.yahoo.search.result.Coverage;
 import com.yahoo.search.result.ErrorMessage;
 import com.yahoo.search.searchchain.Execution;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Set;
+
 
 /**
  * SearchInvoker encapsulates an allocated connection for running a single search query.
@@ -31,22 +38,59 @@ public abstract class SearchInvoker extends CloseableInvoker {
      * nodes, the provided {@link Execution} may be used to retrieve document summaries required
      * for correct result windowing.
      */
-    public Result search(Query query) throws IOException {
-        sendSearchRequest(query, null);
-        InvokerResult result = getSearchResult();
-        setFinalStatus(result.getResult().hits().getError() == null);
-        result.complete();
-        return result.getResult();
+    public Result search(Query query, double contentShare) throws IOException {
+        return OtelTracing.instrument("dispatch.search", () -> {
+            // Set before any work, so a dispatch that fails on send is still attributable to its schema.
+            Span.current().setAttribute(TraceAttributes.SCHEMA, schemaOf(query));
+
+            sendSearchRequest(query, contentShare, null);
+            InvokerResult result = getSearchResult();
+
+            // Dispatch failures are RETURNED, not thrown — errorResult below, and every early return in
+            // RpcSearchInvoker, builds a Result carrying an ErrorMessage. inSpan's own catch therefore never
+            // sees them, and the span would be reported as successful unless we record the outcome here.
+            ErrorMessage error = result.getResult().hits().getError();
+            setFinalStatus(error == null);
+            if (error != null)
+                Span.current().setStatus(StatusCode.ERROR)
+                              .setAttribute(TraceAttributes.ERROR_CODE, error.getCode())
+                              .setAttribute(TraceAttributes.ERROR_MESSAGE, error.getMessage());
+
+            // false: null when there is no coverage, so we set nothing rather than report a misleading zero.
+            Coverage coverage = result.getResult().getCoverage(false);
+            if (coverage != null)
+                Span.current().setAttribute(TraceAttributes.COVERAGE_PERCENTAGE,  coverage.getResultPercentage())
+                              .setAttribute(TraceAttributes.COVERAGE_NODES,       coverage.getNodes())
+                              .setAttribute(TraceAttributes.COVERAGE_NODES_TRIED, coverage.getNodesTried())
+                              .setAttribute(TraceAttributes.COVERAGE_DEGRADED,    coverage.isDegraded());
+
+            result.complete();
+            return result.getResult();
+        });
     }
+
+    /** The one schema this dispatch searches; perSchemaSearch guarantees exactly one entry on this path. */
+    private static String schemaOf(Query query) {
+        Set<String> restrict = query.getModel().getRestrict();
+        return restrict != null && restrict.size() == 1 ? restrict.iterator().next() : null;
+    }
+
+    /**
+     * Returns the node this will invoke, or empty if it is not invoking a single node,
+     * but a whole group or just causing an error.
+     */
+    public Optional<Node> node() { return node; }
 
     /**
      *
      * @param query the query to send
+     * @param contentShare the share of the total content to be queried (across all nodes in the queried group)
+     *                     which is being queried on the node we are serializing for here
      * @param context a context object that can be used to pass context among different
-     *                invokers, e.g for reuse of preserialized data.
+     *                invokers, e.g. for reuse of preserialized data.
      * @return an object that can be passed to the next invocation of sendSearchRequest
      */
-    protected abstract Object sendSearchRequest(Query query, Object context) throws IOException;
+    protected abstract Object sendSearchRequest(Query query, double contentShare, Object context) throws IOException;
 
     protected abstract InvokerResult getSearchResult() throws IOException;
 
@@ -70,6 +114,18 @@ public abstract class SearchInvoker extends CloseableInvoker {
         errorCoverage.setNodesTried(1);
         error.setCoverage(errorCoverage);
         return new InvokerResult(error);
+    }
+
+    /** Invokers must have identity equals semantics. */
+    @Override
+    public final boolean equals(Object other) {
+        return super.equals(other);
+    }
+
+    /** Invokers must have identity equals semantics. */
+    @Override
+    public final int hashCode() {
+        return super.hashCode();
     }
 
 }

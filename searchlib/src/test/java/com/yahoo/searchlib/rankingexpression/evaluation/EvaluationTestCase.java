@@ -56,6 +56,15 @@ public class EvaluationTestCase {
     }
 
     @Test
+    public void testNamedStringValue() {
+        NamedStringValue value = new NamedStringValue("label", "title-terms");
+        assertEquals("label:title-terms", value.asString());
+
+        value.freeze();
+        assertTrue(value.asMutable() instanceof NamedStringValue);
+    }
+
+    @Test
     public void testEvaluationOrder() {
         EvaluationTester tester = new EvaluationTester();
         tester.assertEvaluates(-4, "1 + -2 + -3");
@@ -114,6 +123,14 @@ public class EvaluationTestCase {
         tester.assertEvaluates(3.5, "if(0.0, 2.5, 3.5)");
         tester.assertEvaluates(2.5, "if(1.0-1.1, 2.5, 3.5)");
         tester.assertEvaluates(3.5, "if(1.0-1.0, 2.5, 3.5)");
+
+        // Switch expressions
+        tester.assertEvaluates(0.5, "switch(one) { case 1: one_half, case 2: a_quarter, default: 0 }");
+        tester.assertEvaluates(0.25, "switch(2) { case 1: one_half, case 2: a_quarter, default: 0 }");
+        tester.assertEvaluates(0, "switch(3) { case 1: one_half, case 2: a_quarter, default: 0 }");
+        tester.assertEvaluates(1, "switch(foo) { case \"foo\": 1, case \"bar\": 2, default: 0 }");
+        tester.assertEvaluates(2, "switch(\"bar\") { case \"foo\": 1, case \"bar\": 2, default: 0 }");
+        tester.assertEvaluates(0, "switch(\"baz\") { case \"foo\": 1, case \"bar\": 2, default: 0 }");
 
         // Conditionals with branch probabilities
         RankingExpression e = tester.assertEvaluates(3.5, "if(1.0-1.0, 2.5, 3.5, 0.3)");
@@ -215,6 +232,58 @@ public class EvaluationTestCase {
         tester.assertEvaluates("tensor<double>(a{},x[2]):{foo:[3,5],bar:[9,11]}",
                                "map_subspaces(tensor0, f(t)(tensor(x[2])(t{x:(x)}+t{x:(x+1)})))",
                                "tensor<float>(a{},x[3]):{foo:[1,2,3],bar:[4,5,6]}");
+    }
+
+    @Test
+    public void testFilterSubspaces() {
+        EvaluationTester tester = new EvaluationTester();
+        // identity lambda is often used
+        tester.assertEvaluates("tensor(a{},x[2]):{foo:[2,3],bar:[1,0]}",
+                               "filter_subspaces(tensor0, f(t)(t))",
+                               "tensor(a{},x[2]):{foo:[2,3],bar:[1,0]}");
+        // check with cell type
+        tester.assertEvaluates("tensor<float>(a{},x[2]):{foo:[2,3]}",
+                               "filter_subspaces(tensor0, f(t)(t * 5))",
+                               "tensor<float>(a{},x[2]):{foo:[2,3],bar:[0,0]}");
+        // check no cell type decay
+        tester.assertEvaluates("tensor<int8>(a{},x[2]):{foo:[2,3]}",
+                               "filter_subspaces(tensor0, f(t)(t>1))",
+                               "tensor<int8>(a{},x[2]):{foo:[2,3],bar:[1,0]}");
+    }
+
+    @Test
+    public void testCellOrder() {
+        EvaluationTester tester = new EvaluationTester();
+        // simple mapped
+        tester.assertEvaluates("tensor(p{}):{a:2,b:4,c:0,d:1,e:3}",
+                               "cell_order(tensor0, max)",
+                               "tensor(p{}):{a:7,b:-3,c:12,d:11,e:-1}");
+        // with cell type decay & dense
+        tester.assertEvaluates("tensor<float>(x[5]):[2,4,0,1,3]",
+                               "cell_order(tensor0, max)",
+                               "tensor<int8>(x[5]):[7,-3,42,13,-1]");
+        // check that "min" works as well
+        tester.assertEvaluates("tensor(p{}):{a:2,b:0,c:4,d:3,e:1}",
+                               "cell_order(tensor0, min)",
+                               "tensor(p{}):{a:7,b:-3,c:12,d:11,e:-1}");
+    }
+
+    @Test
+    public void testTop() {
+        EvaluationTester tester = new EvaluationTester();
+        // simple mapped
+        tester.assertEvaluates("tensor(p{}):{a:7,c:12,d:11}",
+                               "top(3, tensor0)",
+                               "tensor(p{}):{a:7,b:-3,c:12,d:11,e:-1}");
+        // with expressions
+        tester.assertEvaluates("tensor(p{}):{b:6,e:2}",
+                               "top(sum(tensor0)+1, tensor1 * -2)",
+                               "tensor(x[2]):[-1,2]",
+                               "tensor(p{}):{a:7,b:-3,c:12,d:11,e:-1}");
+        // check that "top" also works as identifier
+        tester.assertEvaluates("tensor(top[2]):[0.25,0.75]",
+                               "l1_normalize(tensor0, top)",
+                               "tensor(top[2]):[1,3]");
     }
 
     @Test
@@ -372,7 +441,7 @@ public class EvaluationTestCase {
         tester.assertEvaluates("{ {x:0,y:0,z:0}:7, {x:0,y:0,z:1}:13, {x:1,y:0,z:0}:21, {x:1,y:0,z:1}:39, {x:0,y:1,z:0}:55, {x:0,y:1,z:1}:0, {x:1,y:1,z:0}:0, {x:1,y:1,z:1}:0 }",
                                "tensor0 * tensor1", "{ {x:0,y:0}:1, {x:1,y:0}:3, {x:0,y:1}:5, {x:1,y:1}:0 }", "{ {y:0,z:0}:7, {y:1,z:0}:11, {y:0,z:1}:13, {y:1,z:1}:0 }");
         tester.assertEvaluates("{ {x:0,y:1,z:0}:35, {x:0,y:1,z:1}:65 }",
-                               "tensor0 * tensor1", "tensor(x{},y{}):{ {x:0,y:0}:1, {x:1,y:0}:3, {x:0,y:1}:5 }", "tensor(y{},z{}):{ {y:1,z:0}:7, {y:2,z:0}:11, {y:1,z:1}:13 })");
+                               "tensor0 * tensor1", "tensor(x{},y{}):{ {x:0,y:0}:1, {x:1,y:0}:3, {x:0,y:1}:5 }", "tensor(y{},z{}):{ {y:1,z:0}:7, {y:2,z:0}:11, {y:1,z:1}:13 }");
         tester.assertEvaluates("{{x:0,y:0}:0.0}","tensor1 * tensor2 * tensor3", "{ {x:0}:1 }", "{ {x:1,y:0}:1, {x:0,y:0}:1 }", "{ {x:0,y:0}:1 }");
         tester.assertEvaluates("{ {d1:0}:50, {d1:1}:500, {d1:2}:5000 }",
                                "5 * tensor0", "{ {d1:0}:10, {d1:1}:100, {d1:2}:1000 }");
@@ -455,8 +524,8 @@ public class EvaluationTestCase {
         tester.assertEvaluates("{ {x:0}:0, {x:1}:0, {x:2}:1, {x:3}:0 }", "argmin(tensor0, x)", "{ {x:0}:15, {x:1}:12, {x:2}:7, {x:3}:15 }");
 
         // expressions combining functions
-        tester.assertEvaluates("tensor(y{}):{{y:6}:0}}", "matmul(tensor0, diag(x[5],y[7]), x)", "tensor(x{},y{}):{{x:4,y:6}:1})");
-        tester.assertEvaluates("tensor(y{}):{{y:6}:10}}", "matmul(tensor0, range(x[5],y[7]), x)", "tensor(x{},y{}):{{x:4,y:6}:1})");
+        tester.assertEvaluates("tensor(y{}):{{y:6}:0}", "matmul(tensor0, diag(x[5],y[7]), x)", "tensor(x{},y{}):{{x:4,y:6}:1}");
+        tester.assertEvaluates("tensor(y{}):{{y:6}:10}", "matmul(tensor0, range(x[5],y[7]), x)", "tensor(x{},y{}):{{x:4,y:6}:1}");
         tester.assertEvaluates(String.valueOf(7.5 + 45 + 1.7),
                                "sum( " +               // model computation:
                                "      tensor0 * tensor1 * tensor2 " + // - feature combinations
@@ -733,6 +802,14 @@ public class EvaluationTestCase {
                                "tensor(x[3]):[1.0, 2.0, 3]");
         tester.assertEvaluates("tensor(x{},y{}):{ {x:a,y:0}:1.0, {x:b,y:0}:2.0, {x:c,y:0}:3.0 }",
                                "tensor(x{},y{}):{ {x:a,y:0}:1.0, {x:b,y:0}:2.0, {x:c,y:0}:3.0 }");
+        tester.assertEvaluates("tensor(x{},y{}):{ {x:a,y:0}:1.0, {x:b,y:0}:2.0, {x:c,y:0}:3.0 }",
+                               "tensor(x{},y{}):{ a:{0:1}, b:{0:2}, c:{0:3} }");
+        tester.assertEvaluates("tensor(x{},y{}):{ {x:a,y:0}:1.0, {x:b,y:0}:2.0, {x:c,y:0}:3.0 }",
+                               "tensor(y{},x{}):{ 0:{a:1, b:2, c:3} }");
+        tester.assertEvaluates("tensor(x{},y{}):{{x:a,y:0}:1.0,{x:a,y:1}:2.0,{x:b,y:0}:3.0,{x:b,y:1}:4.0}",
+                               "tensor(x{},y{}):{ a:{0:1, 1:2}, b:{0:3, 1:4} }");
+        tester.assertEvaluates("tensor(x{},y{},z[3]):{a:{aa:[1,0,2],bb:[3,0,4]},b:{aa:[5,0,6],bb:[7,0,8]}}",
+                               "tensor(x{},y{},z[3]):{a:{aa:[1,0,2],bb:[3,0,4]},b:{aa:[5,0,6],bb:[7,0,8]}}");
         tester.assertEvaluates("tensor(x{}):{}",
                                "tensor(x{}):{}");
         tester.assertEvaluates("tensor():{{}:1}",
@@ -789,6 +866,43 @@ public class EvaluationTestCase {
         }
         catch (Exception e) {
             assertEquals("Need 6 values to fill tensor(x[2],y[3]) but got 7", e.getMessage());
+        }
+        try {
+            new RankingExpression("tensor(a{},b{},x[2]):{a1:{b2:{c3:[1,2]}}}");
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals("At {a:'a1', b:'b2'}: Got label 'c3' but all mapped dimensions already have labels",
+                         e.getMessage());
+        }
+        try {
+            new RankingExpression("tensor(a{},b{},x[2]):{a1:{b2:[1,2]}, a2:[3,4]}");
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals("At 'a2': Missing label for dimension 'b'", e.getMessage());
+        }
+        try {
+            new RankingExpression("tensor(a{},b{},x[2]):{a1:{b2:42.0}}");
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals("At {a:'a1', b:'b2'}: Need an array of values", e.getMessage());
+        }
+        try {
+            new RankingExpression("tensor(a{},b{},c{}):{a1:{b2:{c3:[0.0]}}}");
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals("At {a:'a1', b:'b2', c:'c3'}: Need a single value", e.getMessage());
+        }
+        try {
+            new RankingExpression("tensor(a{},b{},x[3]):{a1:{b2:[1,2]}}");
+            fail("Expected exception");
+        }
+        catch (Exception e) {
+            assertEquals("At {a:'a1', b:'b2'}: Need 3 values to fill" +
+                         " a dense subspace of tensor(a{},b{},x[3]) but got 2", e.getMessage());
         }
     }
 

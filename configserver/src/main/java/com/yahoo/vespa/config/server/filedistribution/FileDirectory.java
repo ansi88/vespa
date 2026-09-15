@@ -7,6 +7,7 @@ import com.yahoo.component.annotation.Inject;
 import com.yahoo.concurrent.Lock;
 import com.yahoo.concurrent.Locks;
 import com.yahoo.config.FileReference;
+import com.yahoo.config.provision.ApplicationId;
 import com.yahoo.io.IOUtils;
 import com.yahoo.text.Utf8;
 import com.yahoo.vespa.defaults.Defaults;
@@ -27,12 +28,13 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
-import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static com.yahoo.yolean.Exceptions.uncheck;
 import static java.util.logging.Level.FINE;
+import static java.util.logging.Level.FINEST;
 import static java.util.logging.Level.INFO;
+import static java.util.logging.Level.WARNING;
 
 /**
  * Global file directory, holding files for file distribution for all deployed applications.
@@ -55,7 +57,7 @@ public class FileDirectory extends AbstractComponent {
         try {
             ensureRootExist();
         } catch (IllegalArgumentException e) {
-            log.log(Level.WARNING, "Failed creating directory in constructor, will retry on demand : " + e.getMessage());
+            log.log(WARNING, "Failed creating directory in constructor, will retry on demand : " + e.getMessage());
         }
     }
 
@@ -83,9 +85,13 @@ public class FileDirectory extends AbstractComponent {
     public Optional<File> getFile(FileReference reference) {
         ensureRootExist();
         File dir = new File(getPath(reference));
+        if (dir.toPath().normalize().equals(root.toPath().normalize())) {
+            log.log(WARNING, "File reference '" + reference.value() + "' resolves to the file reference root itself, refusing to serve it");
+            return Optional.empty();
+        }
         if (!dir.exists()) {
-            // This is common when config server has not yet received the file from one the server the app was deployed on
-            log.log(FINE, "File reference '" + reference.value() + "' ('" + dir.getAbsolutePath() + "') does not exist.");
+            // This is common when config server has not yet received the file from the server the app was deployed on
+            log.log(FINEST, "File reference '" + reference.value() + "' ('" + dir.getAbsolutePath() + "') does not exist.");
             return Optional.empty();
         }
         if (!dir.isDirectory()) {
@@ -107,10 +113,10 @@ public class FileDirectory extends AbstractComponent {
         if (file.isDirectory()) {
             return Files.walk(file.toPath(), 100).map(path -> {
                 try {
-                    log.log(Level.FINEST, () -> "Calculating hash for '" + path + "'");
+                    log.log(FINEST, () -> "Calculating hash for '" + path + "'");
                     return hash(path.toFile(), hasher);
                 } catch (IOException e) {
-                    log.log(Level.WARNING, "Failed getting hash from '" + path + "'");
+                    log.log(WARNING, "Failed getting hash from '" + path + "'");
                     return 0;
                 }
             }).mapToLong(Number::longValue).sum();
@@ -125,39 +131,49 @@ public class FileDirectory extends AbstractComponent {
     }
 
     public FileReference addFile(File source) throws IOException {
+        return addFile(source, Optional.empty());
+    }
+
+    public FileReference addFile(File source, Optional<ApplicationId> owner) throws IOException {
         Long hash = computeHash(source);
         FileReference fileReference = fileReferenceFromHash(hash);
 
         try (Lock lock = locks.lock(fileReference)) {
-            return addFile(source, fileReference, hash);
+            return addFile(source, fileReference, hash, owner);
         }
     }
 
-    public void delete(FileReference fileReference, Function<FileReference, Boolean> isInUse) {
+    public boolean delete(FileReference fileReference, Function<FileReference, Boolean> isInUse, Function<File, Boolean> isOld) {
         try (Lock lock = locks.lock(fileReference)) {
             if (isInUse.apply(fileReference))
                 log.log(FINE, "Unable to delete file reference '" + fileReference.value() + "' since it is still in use");
-            else
+            else if ( ! isOld.apply(new File(getRoot(), fileReference.value())))
+                log.log(FINE, "Unable to delete file reference '" + fileReference.value() + "' since it is recently used");
+            else {
                 deleteDirRecursively(destinationDir(fileReference));
+                log.log(FINE, "Deleted file reference '" + fileReference.value() + "'");
+                return true;
+            }
+            return false;
         }
     }
 
     private void deleteDirRecursively(File dir) {
-        log.log(FINE, "Will delete dir " + dir);
+        log.log(FINEST, "Will delete dir " + dir);
         if ( ! IOUtils.recursiveDeleteDir(dir))
             log.log(INFO, "Failed to delete " + dir);
     }
 
     // Check if we should add file, it might already exist
-    private boolean shouldAddFile(File source, Long hashOfFileToBeAdded) throws IOException {
+    private boolean shouldAddFile(File source, Long hashOfFileToBeAdded, Optional<ApplicationId> owner) throws IOException {
         FileReference fileReference = fileReferenceFromHash(hashOfFileToBeAdded);
         File destinationDir = destinationDir(fileReference);
         if ( ! destinationDir.exists()) return true;
 
         File existingFile = destinationDir.toPath().resolve(source.getName()).toFile();
         if ( ! existingFile.exists() || ! computeHash(existingFile).equals(hashOfFileToBeAdded)) {
-            log.log(Level.WARNING, "Directory for file reference '" + fileReference.value() +
-                    "' has content that does not match its hash, deleting everything in " +
+            log.log(WARNING, "Directory for file reference '" + fileReference.value() + "'" + ownerSuffix(owner) +
+                    " has content that does not match its hash, deleting everything in " +
                     destinationDir.getAbsolutePath());
             deleteDirRecursively(destinationDir);
             return true;
@@ -178,13 +194,13 @@ public class FileDirectory extends AbstractComponent {
     }
 
     // Pre-condition: Destination dir does not exist
-    private FileReference addFile(File source, FileReference reference, Long hash) throws IOException {
-        if ( ! shouldAddFile(source, hash)) return reference;
+    private FileReference addFile(File source, FileReference reference, Long hash, Optional<ApplicationId> owner) throws IOException {
+        if ( ! shouldAddFile(source, hash, owner)) return reference;
 
         ensureRootExist();
         Path tempDestinationDir = uncheck(() -> Files.createTempDirectory(root.toPath(), "writing"));
         try {
-            logfileInfo(source);
+            logfileInfo(source, owner);
 
             // Copy files to temp dir
             File tempDestination = new File(tempDestinationDir.toFile(), source.getName());
@@ -206,11 +222,15 @@ public class FileDirectory extends AbstractComponent {
         }
     }
 
-    private void logfileInfo(File file ) throws IOException {
+    private void logfileInfo(File file, Optional<ApplicationId> owner) throws IOException {
         BasicFileAttributes basicFileAttributes = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
-        log.log(FINE, () -> "Adding file " + file.getAbsolutePath() + " (created " + basicFileAttributes.creationTime() +
+        log.log(FINE, () -> "Adding file " + file.getAbsolutePath() + ownerSuffix(owner) + " (created " + basicFileAttributes.creationTime() +
                 ", modified " + basicFileAttributes.lastModifiedTime() +
                 ", size " + basicFileAttributes.size() + ")");
+    }
+
+    private static String ownerSuffix(Optional<ApplicationId> owner) {
+        return owner.map(id -> " for application '" + id.toFullString() + "'").orElse("");
     }
 
     private static void copyFile(File source, File dest) throws IOException {

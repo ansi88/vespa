@@ -1,10 +1,14 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.grouping.vespa;
 
+import com.yahoo.processing.IllegalInputException;
 import com.yahoo.search.grouping.Continuation;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * @author Simon Thoresen Hult
@@ -40,7 +44,7 @@ public class GroupingTransformTestCase {
         try {
             transform.putLabel(0, 2, "foo", "my_type");
             fail();
-        } catch (UnsupportedOperationException e) {
+        } catch (IllegalInputException e) {
             assertEquals("Can not use my_type label 'foo' for multiple siblings.",
                     e.getMessage());
         }

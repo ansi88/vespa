@@ -2,11 +2,15 @@
 #pragma once
 
 #include "types.h"
-#include <vespa/document/base/documentid.h>
-#include <vespa/vespalib/stllike/string.h>
-#include <iosfwd>
 
-namespace vespalib { class asciistream; }
+#include <vespa/document/base/documentid.h>
+
+#include <iosfwd>
+#include <string>
+
+namespace vespalib {
+class asciistream;
+}
 
 namespace storage::spi {
 
@@ -17,7 +21,7 @@ namespace storage::spi {
  */
 struct IdAndTimestamp {
     document::DocumentId id;
-    Timestamp timestamp;
+    Timestamp            timestamp;
 
     IdAndTimestamp();
     IdAndTimestamp(document::DocumentId id_, Timestamp timestamp_) noexcept;
@@ -32,7 +36,7 @@ struct IdAndTimestamp {
     }
 
     void print(vespalib::asciistream&) const;
-    vespalib::string to_string() const;
+    std::string to_string() const;
 
     struct hash {
         size_t operator()(const IdAndTimestamp& id_ts) const noexcept {
@@ -45,4 +49,4 @@ struct IdAndTimestamp {
 vespalib::asciistream& operator<<(vespalib::asciistream&, const IdAndTimestamp&);
 std::ostream& operator<<(std::ostream&, const IdAndTimestamp&);
 
-}
+} // namespace storage::spi

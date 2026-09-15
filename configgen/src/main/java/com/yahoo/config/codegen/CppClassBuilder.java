@@ -6,6 +6,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Arrays;
 import java.util.StringTokenizer;
@@ -25,14 +27,14 @@ public class CppClassBuilder implements ClassBuilder {
             "int32_t", "::config::IntVector",
             "int64_t", "::config::LongVector",
             "double", "::config::DoubleVector",
-            "vespalib::string", "::config::StringVector"
+            "std::string", "::config::StringVector"
     );
     private static final Map<String, String> mapTypeDefs = Map.of(
             "bool", "::config::BoolMap",
             "int32_t", "::config::IntMap",
             "int64_t", "::config::LongMap",
             "double", "::config::DoubleMap",
-            "vespalib::string", "::config::StringMap"
+            "std::string", "::config::StringMap"
     );
 
     private static final Map<String, String> slimeTypeMap = Map.of(
@@ -58,7 +60,7 @@ public class CppClassBuilder implements ClassBuilder {
     }
 
     void writeFile(File f, String content) throws IOException {
-        FileWriter fw = new FileWriter(f);
+        FileWriter fw = new FileWriter(f, StandardCharsets.UTF_8);
         fw.write(content);
         fw.close();
     }
@@ -96,18 +98,13 @@ public class CppClassBuilder implements ClassBuilder {
         String [] parts = source.split("[-_]");
         StringBuilder sb = new StringBuilder();
         for (String s : parts) {
-            sb.append(s.substring(0, 1).toUpperCase()).append(s.substring(1));
+            sb.append(s.substring(0, 1).toUpperCase(Locale.ROOT)).append(s.substring(1));
         }
         String result = sb.toString();
         if (!capitalizeFirst) {
-            result = result.substring(0,1).toLowerCase() + result.substring(1);
+            result = result.substring(0,1).toLowerCase(Locale.ROOT) + result.substring(1);
         }
         return result;
-    }
-
-    /** Convert name of type to the name we want to use in macro ifdefs in file. */
-    String getDefineName(String name) {
-        return name.toUpperCase().replace("-", "");
     }
 
     /** Convert name of type to the name we want to use as type name in the generated code. */
@@ -201,16 +198,6 @@ public class CppClassBuilder implements ClassBuilder {
         return str.toString();
     }
 
-    String generateCppNameSpaceDefine(String[] namespaceList) {
-        StringBuilder str = new StringBuilder();
-        for (int i = 0; i < namespaceList.length - 1; i++) {
-            str.append(namespaceList[i].toUpperCase());
-            str.append("_");
-        }
-        str.append(namespaceList[namespaceList.length - 1].toUpperCase());
-        return str.toString();
-    }
-
     void writeNameSpaceBegin(Writer w, String [] namespaceList) throws IOException {
         w.write("namespace ");
         w.write(getNestedNameSpace(namespaceList));
@@ -230,10 +217,11 @@ public class CppClassBuilder implements ClassBuilder {
     void writeHeaderHeader(Writer w, CNode root) throws IOException {
         String [] namespaceList = generateCppNameSpace(root);
         String namespacePrint = generateCppNameSpaceString(namespaceList);
-        String namespaceDefine = generateCppNameSpaceDefine(namespaceList);
         String className = getTypeName(root, false);
-        String defineName = namespaceDefine + "_" + getDefineName(className);
         w.write(""
+                + "// ------------   D O   N O T   E D I T !   ------------\n"
+                + "// This file is generated from a config definition file.\n"
+                + "\n"
                 + "/**\n"
                 + " * @class " + namespacePrint + "::" + className + "\n"
                 + " * @ingroup config\n"
@@ -253,8 +241,7 @@ public class CppClassBuilder implements ClassBuilder {
         }
         w.write(""
                 + " */\n"
-                + "#ifndef CLOUD_CONFIG_" + defineName + "_H\n"
-                + "#define CLOUD_CONFIG_" + defineName + "_H\n"
+                + "#pragma once\n"
                 + "\n"
                 + "#include <vespa/config/configgen/configinstance.h>\n"
                 + "#include <vespa/config/common/types.h>\n"
@@ -302,15 +289,15 @@ public class CppClassBuilder implements ClassBuilder {
                             + indent + "typedef std::vector<" + typeName + "> "
                             + typeName + "Vector;"
                             + "\n"
-                            + indent + "typedef std::map<vespalib::string, " + typeName + "> "
+                            + indent + "typedef std::map<std::string, " + typeName + "> "
                             + typeName + "Map;"
                             + "\n"
-                            + indent + "static " + typeName + " get" + typeName + "(const vespalib::string&);\n"
-                            + indent + "static vespalib::string get" + typeName + "Name(" + typeName + " e);\n"
+                            + indent + "static " + typeName + " get" + typeName + "(const std::string&);\n"
+                            + indent + "static std::string get" + typeName + "Name(" + typeName + " e);\n"
                             + "\n"
                             );
                     w.write(indent + "struct Internal" + typeName + "Converter {\n");
-                    w.write(indent + "    " + typeName + " operator()(const ::vespalib::string & __fieldName, const ::vespalib::slime::Inspector & __inspector);\n");
+                    w.write(indent + "    " + typeName + " operator()(const ::std::string & __fieldName, const ::vespalib::slime::Inspector & __inspector);\n");
                     w.write(indent + "    " + typeName + " operator()(const ::vespalib::slime::Inspector & __inspector);\n");
                     w.write(indent + "    " + typeName + " operator()(const ::vespalib::slime::Inspector & __inspector, " + typeName + " __eDefault);\n");
                     w.write(indent + "};\n");
@@ -322,7 +309,7 @@ public class CppClassBuilder implements ClassBuilder {
                     writeMembers(w, child, indent + "    ");
                     w.write(indent + "};\n");
                     w.write(indent + "typedef std::vector<" + typeName + "> " + typeName + "Vector;\n\n");
-                    w.write(indent + "typedef std::map<vespalib::string, " + typeName + "> " + typeName + "Map;\n\n");
+                    w.write(indent + "typedef std::map<std::string, " + typeName + "> " + typeName + "Map;\n\n");
                 }
             }
         }
@@ -330,9 +317,9 @@ public class CppClassBuilder implements ClassBuilder {
 
     void writeHeaderFunctionDeclarations(Writer w, String className, CNode node, String indent) throws IOException {
         w.write(""
-                + indent + "const vespalib::string & defName() const override { return CONFIG_DEF_NAME; }\n"
-                + indent + "const vespalib::string & defMd5() const override { return CONFIG_DEF_MD5; }\n"
-                + indent + "const vespalib::string & defNamespace() const override { return CONFIG_DEF_NAMESPACE; }\n"
+                + indent + "const std::string & defName() const override { return CONFIG_DEF_NAME; }\n"
+                + indent + "const std::string & defMd5() const override { return CONFIG_DEF_MD5; }\n"
+                + indent + "const std::string & defNamespace() const override { return CONFIG_DEF_NAMESPACE; }\n"
                 + indent + "void serialize(::config::ConfigDataBuffer & __buffer) const override;\n");
         writeConfigClassFunctionDeclarations(w, "Internal" + className + "Type", node, indent);
     }
@@ -345,7 +332,7 @@ public class CppClassBuilder implements ClassBuilder {
     }
 
     void writeStructFunctionDeclarations(Writer w, String className, CNode node, String indent) throws IOException {
-        w.write(indent + className + "(const " + vectorTypeDefs.get("vespalib::string") + " & __lines);\n");
+        w.write(indent + className + "(const " + vectorTypeDefs.get("std::string") + " & __lines);\n");
         w.write(indent + className + "(const vespalib::slime::Inspector & __inspector);\n");
         w.write(indent + className + "(const ::config::ConfigPayload & __payload);\n");
         writeCommonFunctionDeclarations(w, className, node, indent);
@@ -438,11 +425,11 @@ public class CppClassBuilder implements ClassBuilder {
             } else if (leaf.getType().equals("enum")) {
                 type = getTypeName(node.getName());
             } else if (leaf.getType().equals("string")) {
-                type = "vespalib::string";
+                type = "std::string";
             } else if (leaf.getType().equals("reference")) {
-                type = "vespalib::string";
+                type = "std::string";
             } else if (leaf.getType().equals("file")) {
-                type = "vespalib::string";
+                type = "std::string";
             } else {
                 throw new IllegalArgumentException("Unknown leaf datatype " + leaf.getType());
             }
@@ -468,9 +455,9 @@ public class CppClassBuilder implements ClassBuilder {
 
     void writeStaticMemberDeclarations(Writer w, String indent) throws IOException {
         w.write(""
-                + indent + "static const vespalib::string CONFIG_DEF_MD5;\n"
-                + indent + "static const vespalib::string CONFIG_DEF_NAME;\n"
-                + indent + "static const vespalib::string CONFIG_DEF_NAMESPACE;\n"
+                + indent + "static const std::string CONFIG_DEF_MD5;\n"
+                + indent + "static const std::string CONFIG_DEF_NAME;\n"
+                + indent + "static const std::string CONFIG_DEF_NAMESPACE;\n"
                 + indent + "static const ::config::StringVector CONFIG_DEF_SCHEMA;\n"
                 + indent + "static const int64_t CONFIG_DEF_SERIALIZE_VERSION;\n"
                 + "\n"
@@ -562,10 +549,7 @@ public class CppClassBuilder implements ClassBuilder {
 
     void writeHeaderFooter(Writer w, CNode root) throws IOException {
         String [] namespaceList = generateCppNameSpace(root);
-        String namespaceDefine = generateCppNameSpaceDefine(namespaceList);
-
         String className = getTypeName(root, false);
-        String defineName = namespaceDefine + "_" + getDefineName(className);
 
         w.write(""
                 + "};\n"
@@ -576,7 +560,6 @@ public class CppClassBuilder implements ClassBuilder {
         w.write("typedef const internal::" + getInternalClassName(root) + " " + className + "Config;\n");
         w.write("\n");
         writeNameSpaceEnd(w, namespaceList);
-        w.write("#endif // VESPA_config_" + defineName + "_H\n");
     }
 
     void writeBodyFile(Writer w, CNode root, String subdir, NormalizedDefinition nd) throws IOException {
@@ -587,6 +570,9 @@ public class CppClassBuilder implements ClassBuilder {
     }
 
     void writeBodyHeader(Writer w, CNode root, String subdir) throws IOException {
+        w.write("// ------------   D O   N O T   E D I T !   ------------\n");
+        w.write("// This file is generated from a config definition file.\n");
+        w.write("\n");
         if (subdir == null) {
             w.write("#include \"" + getFileName(root, "h") + "\"");
         } else {
@@ -616,11 +602,11 @@ public class CppClassBuilder implements ClassBuilder {
 
     void writeStaticMemberDefinitions(Writer w, CNode root, NormalizedDefinition nd) throws IOException {
         String typeName = getInternalClassName(root);
-        w.write("const vespalib::string " + typeName + "::CONFIG_DEF_MD5(\"" + root.defMd5 + "\");\n"
-                + "const vespalib::string " + typeName + "::CONFIG_DEF_NAME(\"" + root.defName + "\");\n"
-                + "const vespalib::string " + typeName + "::CONFIG_DEF_NAMESPACE(\"" + root.getNamespace() + "\");\n"
+        w.write("const std::string " + typeName + "::CONFIG_DEF_MD5(\"" + root.defMd5 + "\");\n"
+                + "const std::string " + typeName + "::CONFIG_DEF_NAME(\"" + root.defName + "\");\n"
+                + "const std::string " + typeName + "::CONFIG_DEF_NAMESPACE(\"" + root.getNamespace() + "\");\n"
                 + "const int64_t " + typeName + "::CONFIG_DEF_SERIALIZE_VERSION(1);\n");
-        w.write("const static vespalib::string __internalDefSchema[] = {\n");
+        w.write("const static std::string __internalDefSchema[] = {\n");
         for (String line : nd.getNormalizedContent()) {
             w.write("\"" + line.replace("\"", "\\\"") + "\",\n");
         }
@@ -648,7 +634,7 @@ public class CppClassBuilder implements ClassBuilder {
                     LeafCNode.EnumLeaf leaf = (LeafCNode.EnumLeaf) child;
                     // Definition of getType(string)
                     w.write(parent + typeName + "\n"
-                            + parent + "get" + typeName + "(const vespalib::string& name)\n"
+                            + parent + "get" + typeName + "(const std::string& name)\n"
                             + "{\n"
                             );
                     for (int i=0; i<leaf.getLegalValues().length; ++i) {
@@ -663,7 +649,7 @@ public class CppClassBuilder implements ClassBuilder {
                             + "\n"
                             );
                     // Definition of getTypeName(enum)
-                    w.write("vespalib::string\n"
+                    w.write("std::string\n"
                             + parent + "get" + typeName + "Name(" + typeName + " t)\n"
                             + "{\n"
                             + "    switch (t) {\n"
@@ -681,7 +667,7 @@ public class CppClassBuilder implements ClassBuilder {
                             + "}\n"
                             + "\n"
                             );
-                    w.write(parent + typeName + " " + parent + "Internal" + typeName + "Converter::operator()(const ::vespalib::string & __fieldName, const ::vespalib::slime::Inspector & __inspector) {\n");
+                    w.write(parent + typeName + " " + parent + "Internal" + typeName + "Converter::operator()(const ::std::string & __fieldName, const ::vespalib::slime::Inspector & __inspector) {\n");
                     w.write("    if (__inspector.valid()) {\n");
                     w.write("        return " + parent + "get" + typeName + "(__inspector.asString().make_string());\n");
                     w.write("    }\n");
@@ -770,12 +756,12 @@ public class CppClassBuilder implements ClassBuilder {
                     + "{\n"
                     + indent + "try {\n");
             indent = "        ";
-            w.write(indent + "const " + vectorTypeDefs.get("vespalib::string") + " & __lines(__value.getLines());\n");
+            w.write(indent + "const " + vectorTypeDefs.get("std::string") + " & __lines(__value.getLines());\n");
         } else {
-            w.write(parent + typeName + "(const " + vectorTypeDefs.get("vespalib::string") +" & __lines)\n"
+            w.write(parent + typeName + "(const " + vectorTypeDefs.get("std::string") +" & __lines)\n"
                     + "{\n");
         }
-        w.write(indent + "std::set<vespalib::string> __remainingValuesToParse = ConfigParser::getUniqueNonWhiteSpaceLines(__lines);\n");
+        w.write(indent + "std::set<std::string> __remainingValuesToParse = ConfigParser::getUniqueNonWhiteSpaceLines(__lines);\n");
         for (CNode child : node.getChildren()) {
             String childType = getTypeName(child, false);
             String childName = getIdentifier(child.getName());
@@ -785,11 +771,11 @@ public class CppClassBuilder implements ClassBuilder {
                     childVectorType = "::config::StringVector";
                     w.write(indent + childVectorType + " " + childName + "__ValueList(\n            ");
                 } else if (child.isMap) {
-                    w.write(indent + "std::map<vespalib::string, vespalib::string> " + childName + "__ValueMap(\n            ");
+                    w.write(indent + "std::map<std::string, std::string> " + childName + "__ValueMap(\n            ");
                 } else {
                     w.write(indent + childName + " = get" + childType + "(");
                 }
-                childType = "vespalib::string";
+                childType = "std::string";
             } else {
                 w.write(indent + childName + " = ");
             }

@@ -1,24 +1,22 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
-#include <vespa/vespalib/util/issue.h>
 #include <vespa/vespalib/gtest/gtest.h>
+#include <vespa/vespalib/util/issue.h>
 
 using namespace vespalib;
 
 struct MyHandler : Issue::Handler {
-    std::vector<vespalib::string> list;
-    void handle(const Issue &issue) override {
-        list.push_back(issue.message());
-    }
+    std::vector<std::string> list;
+    void handle(const Issue& issue) override { list.push_back(issue.message()); }
 };
 
 struct MyException : std::exception {
-    vespalib::string my_what;
-    MyException(vespalib::string what_in) : my_what(what_in) {}
-    const char *what() const noexcept override { return my_what.c_str(); }
+    std::string my_what;
+    MyException(std::string what_in) : my_what(what_in) {}
+    const char* what() const noexcept override { return my_what.c_str(); }
 };
 
-std::vector<vespalib::string> make_list(std::vector<vespalib::string> list) {
+std::vector<std::string> make_list(std::vector<std::string> list) {
     return list;
 }
 
@@ -73,12 +71,12 @@ TEST(IssueTest, handler_can_be_bound_multiple_times) {
 
 TEST(IssueTest, alternative_report_functions) {
     MyHandler my_handler;
-    auto capture = Issue::listen(my_handler);
-    Issue::report(vespalib::string("str"));
+    auto      capture = Issue::listen(my_handler);
+    Issue::report(std::string("str"));
     Issue::report("fmt_%s_%d", "msg", 7);
     try {
         throw MyException("exception");
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         Issue::report(e);
     }
     EXPECT_EQ(my_handler.list, make_list({"str", "fmt_msg_7", "exception"}));

@@ -1,7 +1,10 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 package com.yahoo.search.grouping.vespa;
 
+import com.yahoo.data.access.Inspector;
+import com.yahoo.data.access.simple.Value;
 import com.yahoo.prelude.hitfield.RawBase64;
+import com.yahoo.processing.IllegalInputException;
 import com.yahoo.search.grouping.Continuation;
 import com.yahoo.search.grouping.GroupingRequest;
 import com.yahoo.search.grouping.result.BoolId;
@@ -21,6 +24,7 @@ import com.yahoo.search.grouping.result.StringBucketId;
 import com.yahoo.search.grouping.result.StringId;
 import com.yahoo.search.result.Relevance;
 import com.yahoo.searchlib.aggregation.AggregationResult;
+import com.yahoo.searchlib.aggregation.ArgmaxAggregationResult;
 import com.yahoo.searchlib.aggregation.AverageAggregationResult;
 import com.yahoo.searchlib.aggregation.CountAggregationResult;
 import com.yahoo.searchlib.aggregation.ExpressionCountAggregationResult;
@@ -29,6 +33,7 @@ import com.yahoo.searchlib.aggregation.Hit;
 import com.yahoo.searchlib.aggregation.HitsAggregationResult;
 import com.yahoo.searchlib.aggregation.MaxAggregationResult;
 import com.yahoo.searchlib.aggregation.MinAggregationResult;
+import com.yahoo.searchlib.aggregation.QuantileAggregationResult;
 import com.yahoo.searchlib.aggregation.RawData;
 import com.yahoo.searchlib.aggregation.StandardDeviationAggregationResult;
 import com.yahoo.searchlib.aggregation.SumAggregationResult;
@@ -40,11 +45,15 @@ import com.yahoo.searchlib.expression.FloatResultNode;
 import com.yahoo.searchlib.expression.IntegerBucketResultNode;
 import com.yahoo.searchlib.expression.IntegerResultNode;
 import com.yahoo.searchlib.expression.NullResultNode;
+import com.yahoo.searchlib.expression.NumericResultNode;
 import com.yahoo.searchlib.expression.RawBucketResultNode;
 import com.yahoo.searchlib.expression.RawResultNode;
 import com.yahoo.searchlib.expression.ResultNode;
+import com.yahoo.searchlib.expression.ResultNodeVector;
+import com.yahoo.searchlib.expression.SingleResultNode;
 import com.yahoo.searchlib.expression.StringBucketResultNode;
 import com.yahoo.searchlib.expression.StringResultNode;
+import com.yahoo.search.Query;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,10 +70,15 @@ import java.util.Map;
 class ResultBuilder {
 
     private final CompositeContinuation continuation = new CompositeContinuation();
+    private final Query query;
     private RootGroup root;
     private GroupListBuilder rootBuilder;
     private HitConverter hitConverter;
     private GroupingTransform transform;
+
+    ResultBuilder(Query query) {
+        this.query = query;
+    }
 
     /**
      * Sets the id of the {@link GroupingRequest} that this builder is creating the result for.
@@ -73,7 +87,7 @@ class ResultBuilder {
      * @return this, to allow chaining
      */
     public ResultBuilder setRequestId(int requestId) {
-        root = new RootGroup(requestId, continuation);
+        root = new RootGroup(requestId, continuation, query);
         rootBuilder = new GroupListBuilder(ResultId.valueOf(requestId), 0, true, true);
         return this;
     }
@@ -134,20 +148,20 @@ class ResultBuilder {
      * Constructs the grouping result tree that corresponds to the parameters given to this builder. This method might
      * fail due to unsupported constructs in the results, in which case an exception is thrown.
      *
-     * @throws UnsupportedOperationException Thrown if the grouping result contains unsupported constructs.
+     * @throws IllegalInputException Thrown if the grouping result contains unsupported constructs.
      */
     public void build() {
         int numChildren = rootBuilder.childGroups.size();
         if (numChildren != 1) {
-            throw new UnsupportedOperationException("Expected 1 group, got " + numChildren + ".");
+            throw new IllegalInputException("Expected 1 group, got " + numChildren + ".");
         }
         rootBuilder.childGroups.get(0).fill(root);
     }
 
     private class GroupBuilder {
         private static final int CHILDLIST_SIZE_INCREMENTS = 4;
-        boolean [] results = new boolean[8];
-        GroupListBuilder [] childLists;
+        boolean[] results = new boolean[8];
+        GroupListBuilder[] childLists;
         int childCount = 0;
         final ResultId resultId;
         final com.yahoo.searchlib.aggregation.Group group;
@@ -160,7 +174,7 @@ class ResultBuilder {
         }
 
         Group build(double relevance) {
-            return fill(new Group(newGroupId(group), new Relevance(relevance)));
+            return fill(new Group(newGroupId(group), new Relevance(relevance), query));
         }
 
         Group fill(Group group) {
@@ -250,14 +264,52 @@ class ResultBuilder {
             return value;
         }
 
+        /**
+         * Converts a result that may be either a single value or a multi-value result. A multi-value result becomes
+         * an {@link Inspector} array so that renderers output it as an array.
+         */
+        private static Object newResultValue(ResultNode result) {
+            if (result instanceof ResultNodeVector vector) {
+                Value.ArrayValue array = new Value.ArrayValue(vector.size());
+                for (ResultNode element : vector.getVector()) {
+                    array.add(newInspector(element));
+                }
+                return array;
+            }
+            if (result instanceof SingleResultNode single) {
+                return single.getValue();
+            }
+            return result.getString();
+        }
+
+        private static Inspector newInspector(ResultNode result) {
+            if (result instanceof FloatResultNode floatNode) {
+                return new Value.DoubleValue(floatNode.getFloat());
+            }
+            if (result instanceof NumericResultNode numeric) {
+                return new Value.LongValue(numeric.getInteger());
+            }
+            if (result instanceof RawResultNode raw) {
+                return new Value.DataValue(raw.getRaw());
+            }
+            if (result instanceof BoolResultNode bool) {
+                return new Value.BoolValue(bool.getValue());
+            }
+            return new Value.StringValue(result.getString());
+        }
+
         private Object newResult(ExpressionNode execResult, int tag) {
             if (execResult instanceof AverageAggregationResult) {
                 return ((AverageAggregationResult)execResult).getAverage().getNumber();
             } else if (execResult instanceof CountAggregationResult) {
                 return ((CountAggregationResult)execResult).getCount();
+            } else if (execResult instanceof QuantileAggregationResult quantiles) {
+                return quantiles.getQuantileResults();
             } else if (execResult instanceof ExpressionCountAggregationResult) {
                 long count = ((ExpressionCountAggregationResult)execResult).getEstimatedUniqueCount();
                 return correctExpressionCountEstimate(count, tag);
+            } else if (execResult instanceof ArgmaxAggregationResult) {
+                return newResultValue(((ArgmaxAggregationResult)execResult).getValue());
             } else if (execResult instanceof MaxAggregationResult) {
                 return ((MaxAggregationResult)execResult).getMax().getValue();
             } else if (execResult instanceof MinAggregationResult) {

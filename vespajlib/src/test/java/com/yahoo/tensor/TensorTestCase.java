@@ -8,6 +8,7 @@ import com.yahoo.tensor.functions.ConstantTensor;
 import com.yahoo.tensor.functions.Join;
 import com.yahoo.tensor.functions.Reduce;
 import com.yahoo.tensor.functions.TensorFunction;
+import com.yahoo.yolean.Exceptions;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -123,8 +124,9 @@ public class TensorTestCase {
             fail("Expected parse error");
         }
         catch (IllegalArgumentException expected) {
-            assertEquals("Excepted a number or a string starting by {, [ or tensor(...):, got '--'",
-                         expected.getCause().getMessage());
+            assertEquals("Could not parse '--' as a tensor: " +
+                         "Expected a number, hex string, or a string starting by {, [ or tensor(...)",
+                         Exceptions.toMessageString(expected));
         }
     }
 
@@ -143,6 +145,21 @@ public class TensorTestCase {
         assertTrue(dimensions3.contains("d1"));
         assertTrue(dimensions3.contains("d2"));
         assertTrue(dimensions3.contains("d3"));
+    }
+
+    /** Equality is mathematical. */
+    @Test
+    public void testMappedIsEqualToIndexed() {
+        var t = Tensor.from("tensor(x[3]):[1.0, 2.0, 3.0]");
+        assertEqualBothWays(Tensor.from("tensor(x{}):{\"0\":1.0, \"1\":2.0, \"2\":3.0}"),
+                            Tensor.from("tensor(x[3]):[1.0, 2.0, 3.0]"));
+        assertEqualBothWays(Tensor.from("tensor(x{},y[2]):{0:[1.0, 2.0]}"),
+                            Tensor.from("tensor(x[1],y[2]):[[1.0, 2.0]]"));
+    }
+
+    private void assertEqualBothWays(Tensor a, Tensor b) {
+        assertEquals(a, b);
+        assertEquals(b, a);
     }
 
     @Test

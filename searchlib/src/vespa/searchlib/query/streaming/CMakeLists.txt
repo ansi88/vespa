@@ -6,6 +6,7 @@ vespa_add_library(searchlib_query_streaming OBJECT
     fuzzy_term.cpp
     hit.cpp
     hit_iterator_pack.cpp
+    label_wrapper_query_node.cpp
     in_term.cpp
     multi_term.cpp
     near_query_node.cpp
@@ -13,6 +14,8 @@ vespa_add_library(searchlib_query_streaming OBJECT
     onear_query_node.cpp
     phrase_query_node.cpp
     query.cpp
+    query_builder.cpp
+    query_term_data.cpp
     querynode.cpp
     querynoderesultbase.cpp
     queryterm.cpp

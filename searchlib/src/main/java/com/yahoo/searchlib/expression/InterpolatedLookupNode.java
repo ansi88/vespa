@@ -48,9 +48,9 @@ public class InterpolatedLookupNode extends UnaryFunctionNode {
      * @param attribute The attribute to retrieve.
      * @return This, to allow chaining.
      */
-    public InterpolatedLookupNode setAttributeName(String attribute) {
+    final InterpolatedLookupNode setAttributeName(String attribute) {
         if (attribute == null) {
-            throw new IllegalArgumentException("Attribute name can not be null.");
+            throw new IllegalArgumentException("Attribute name cannot be null.");
         }
         this.attribute = attribute;
         return this;

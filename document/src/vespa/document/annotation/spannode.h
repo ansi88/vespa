@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include <vespa/vespalib/stllike/string.h>
 #include <memory>
+#include <string>
 
 namespace document {
 struct SpanTreeVisitor;
@@ -13,11 +13,10 @@ struct SpanNode {
 
     virtual ~SpanNode() = default;
 
-    vespalib::string toString() const;
-    virtual void accept(SpanTreeVisitor &visitor) const = 0;
+    std::string toString() const;
+    virtual void accept(SpanTreeVisitor& visitor) const = 0;
 };
 
-std::ostream & operator << (std::ostream & os, const SpanNode & node);
+std::ostream& operator<<(std::ostream& os, const SpanNode& node);
 
-}  // namespace document
-
+} // namespace document

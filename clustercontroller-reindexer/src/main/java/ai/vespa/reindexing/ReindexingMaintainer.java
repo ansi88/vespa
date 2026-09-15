@@ -37,12 +37,14 @@ import static java.util.stream.Collectors.toMap;
  * Runs in all cluster controller containers, and progresses reindexing efforts.
  * Work is only done by one container at a time, by requiring a shared ZooKeeper lock to be held while visiting.
  * Whichever maintainer gets the lock holds it until all reindexing is done, or until shutdown.
+ * This component will be recreated (and reindexing stopped/restarted) when config,
+ * e.g. reindexing config, changes.
  *
- * @author jonmv
+ * @author Jon Marius Venstad
  */
 public class ReindexingMaintainer extends AbstractComponent {
 
-    private static final Logger log = Logger.getLogger(Reindexing.class.getName());
+    private static final Logger log = Logger.getLogger(ReindexingMaintainer.class.getName());
 
     private final Curator curator;
     private final List<Reindexer> reindexers;
@@ -50,8 +52,7 @@ public class ReindexingMaintainer extends AbstractComponent {
 
     @Inject
     public ReindexingMaintainer(@SuppressWarnings("unused") VespaZooKeeperServer ensureZkHasStarted,
-                                Metric metric,
-                                DocumentAccess access, ZookeepersConfig zookeepersConfig,
+                                Metric metric, DocumentAccess access, ZookeepersConfig zookeepersConfig,
                                 ClusterListConfig clusterListConfig, AllClustersBucketSpacesConfig allClustersBucketSpacesConfig,
                                 ReindexingConfig reindexingConfig) {
         this(Clock.systemUTC(), metric, access, zookeepersConfig, clusterListConfig, allClustersBucketSpacesConfig, reindexingConfig);
@@ -72,7 +73,7 @@ public class ReindexingMaintainer extends AbstractComponent {
                                           .toList();
         this.executor = new ScheduledThreadPoolExecutor(reindexingConfig.clusters().size(), new DaemonThreadFactory("reindexer-"));
         if (reindexingConfig.enabled())
-            scheduleStaggered((delayMillis, intervalMillis) -> executor.scheduleAtFixedRate(this::maintain, delayMillis, intervalMillis, TimeUnit.MILLISECONDS),
+            scheduleStaggered((initialDelayMillis, delayMillis) -> executor.scheduleWithFixedDelay(this::maintain, initialDelayMillis, delayMillis, TimeUnit.MILLISECONDS),
                               Duration.ofMinutes(1), clock.instant(), HostName.getLocalhost(), zookeepersConfig.zookeeperserverlist());
     }
 
@@ -94,17 +95,18 @@ public class ReindexingMaintainer extends AbstractComponent {
     @Override
     public void deconstruct() {
         try {
+            // Shutdown the executor before reindexers, so that no new reindexing tasks are submitted when
+            // reindexers have shutdown
+            executor.shutdown();
+
+            // Abort current reindexing visitor sessions.
             for (Reindexer reindexer : reindexers)
                 reindexer.shutdown();
 
-            executor.shutdown();
-
-            executor.awaitTermination(5, TimeUnit.SECONDS); // Give it 5s to complete gracefully.
+            if ( ! executor.awaitTermination(5, TimeUnit.SECONDS))
+                log.log(WARNING, "Failed to shut down reindexing within timeout");
 
             curator.close(); // Close the underlying curator independently to force shutdown.
-
-            if ( ! executor.isShutdown() && ! executor.awaitTermination(5, TimeUnit.SECONDS))
-                log.log(WARNING, "Failed to shut down reindexing within timeout");
         }
         catch (InterruptedException e) {
             log.log(WARNING, "Interrupted while waiting for reindexing to shut down");
@@ -129,17 +131,17 @@ public class ReindexingMaintainer extends AbstractComponent {
     static void scheduleStaggered(BiConsumer<Long, Long> scheduler,
                                   Duration interval, Instant now,
                                   String hostname, String clusterHostnames) {
-        long delayMillis = 0;
-        long intervalMillis = interval.toMillis();
+        long initialDelayMillis = 0;
+        long delayMillis = interval.toMillis();
         List<String> hostnames = Stream.of(clusterHostnames.split(","))
                                        .map(hostPort -> hostPort.split(":")[0])
                                        .toList();
         if (hostnames.contains(hostname)) {
-            long offset = hostnames.indexOf(hostname) * intervalMillis;
-            intervalMillis *= hostnames.size();
-            delayMillis = Math.floorMod(offset - now.toEpochMilli(), intervalMillis);
+            long offset = hostnames.indexOf(hostname) * delayMillis;
+            delayMillis *= hostnames.size();
+            initialDelayMillis = Math.floorMod(offset - now.toEpochMilli(), delayMillis);
         }
-        scheduler.accept(delayMillis, intervalMillis);
+        scheduler.accept(initialDelayMillis, delayMillis);
     }
 
     static Cluster parseCluster(String name, ClusterListConfig clusters, AllClustersBucketSpacesConfig bucketSpaces,

@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * @author jonmv
  */
-public class LocalVisitorSession implements VisitorSession {
+public final class LocalVisitorSession implements VisitorSession {
 
     private enum State { RUNNING, FAILURE, ABORTED, SUCCESS }
 
@@ -121,7 +121,7 @@ public class LocalVisitorSession implements VisitorSession {
                             control.onDone(VisitorControlHandler.CompletionCode.ABORTED, "Aborted by user");
                             return State.ABORTED;
                         default:
-                            control.onDone(VisitorControlHandler.CompletionCode.FAILURE, "Unexpected state '" + current + "'");;
+                            control.onDone(VisitorControlHandler.CompletionCode.FAILURE, "Unexpected state '" + current + "'");
                             return State.FAILURE;
                     }
                 });

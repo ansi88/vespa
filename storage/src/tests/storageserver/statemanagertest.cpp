@@ -1,47 +1,45 @@
 // Copyright Vespa.ai. Licensed under the terms of the Apache 2.0 license. See LICENSE in the project root.
 
-#include <tests/common/dummystoragelink.h>
-#include <tests/common/storage_config_set.h>
-#include <tests/common/teststorageapp.h>
-#include <tests/common/testhelper.h>
+#include <vespa/config-stor-distribution.h>
+#include <vespa/storage/storageserver/statemanager.h>
 #include <vespa/storageapi/message/bucket.h>
 #include <vespa/storageapi/message/state.h>
 #include <vespa/vdslib/state/cluster_state_bundle.h>
 #include <vespa/vdslib/state/clusterstate.h>
-#include <vespa/storage/storageserver/statemanager.h>
 #include <vespa/vespalib/data/slime/slime.h>
-#include <vespa/config-stor-distribution.h>
 #include <vespa/vespalib/gtest/gtest.h>
 
+#include <tests/common/dummystoragelink.h>
+#include <tests/common/storage_config_set.h>
+#include <tests/common/testhelper.h>
+#include <tests/common/teststorageapp.h>
+
+using storage::lib::ClusterState;
 using storage::lib::NodeState;
 using storage::lib::NodeType;
 using storage::lib::State;
-using storage::lib::ClusterState;
 using namespace ::testing;
 
 namespace storage {
 
 struct StateManagerTest : Test, NodeStateReporter {
-    std::unique_ptr<StorageConfigSet> _config;
+    std::unique_ptr<StorageConfigSet>    _config;
     std::unique_ptr<TestServiceLayerApp> _node;
-    std::unique_ptr<DummyStorageLink> _upper;
-    StateManager* _manager;
-    DummyStorageLink* _lower;
+    std::unique_ptr<DummyStorageLink>    _upper;
+    StateManager*                        _manager;
+    DummyStorageLink*                    _lower;
 
     StateManagerTest();
 
     void SetUp() override;
     void TearDown() override;
 
-    static std::shared_ptr<api::SetSystemStateCommand> make_set_state_cmd(std::string_view state_str, uint16_t cc_index) {
-        auto cmd = std::make_shared<api::SetSystemStateCommand>(lib::ClusterState(state_str));
-        cmd->setSourceIndex(cc_index);
-        return cmd;
+    static std::shared_ptr<api::SetSystemStateCommand> make_set_state_cmd(std::string_view state_str) {
+        return std::make_shared<api::SetSystemStateCommand>(lib::ClusterState(state_str));
     }
 
-    static std::shared_ptr<const lib::ClusterStateBundle> make_state_bundle_with_config(
-            std::string_view state_str, uint16_t num_nodes)
-    {
+    static std::shared_ptr<const lib::ClusterStateBundle> make_state_bundle_with_config(std::string_view state_str,
+                                                                                        uint16_t         num_nodes) {
         auto state = std::make_shared<const ClusterState>(state_str);
         auto distr = lib::DistributionConfigBundle::of(lib::Distribution::getDefaultDistributionConfig(1, num_nodes));
         return std::make_shared<lib::ClusterStateBundle>(std::move(state),
@@ -49,49 +47,34 @@ struct StateManagerTest : Test, NodeStateReporter {
                                                          std::nullopt, std::move(distr), false);
     }
 
-
-    static std::shared_ptr<api::SetSystemStateCommand> make_set_state_cmd_with_config(
-            std::string_view state_str, uint16_t num_nodes)
-    {
+    static std::shared_ptr<api::SetSystemStateCommand> make_set_state_cmd_with_config(std::string_view state_str,
+                                                                                      uint16_t         num_nodes) {
         return std::make_shared<api::SetSystemStateCommand>(make_state_bundle_with_config(state_str, num_nodes));
     }
 
     void get_single_reply(std::shared_ptr<api::StorageReply>& reply_out);
     void get_only_ok_reply(std::shared_ptr<api::StorageReply>& reply_out);
-    void force_current_cluster_state_version(uint32_t version, uint16_t cc_index);
-    void force_current_cluster_state_version(uint32_t version) {
-        force_current_cluster_state_version(version, 0);
-    }
+    void force_current_cluster_state_version(uint32_t version);
     void mark_reported_node_state_up();
     void send_down_get_node_state_request(uint16_t controller_index);
     void assert_ok_get_node_state_reply_sent_and_clear();
     void clear_sent_replies();
     void mark_reply_observed_from_n_controllers(uint16_t n);
 
-    std::string get_node_info() const {
-        return _manager->getNodeInfo();
-    }
-    void report(vespalib::JsonStream &) const override {}
+    std::string get_node_info() const { return _manager->getNodeInfo(); }
+    void report(vespalib::JsonStream&) const override {}
 
     void extract_cluster_state_version_from_host_info(uint32_t& version_out);
 
-    static vespalib::string to_string(const lib::Distribution::DistributionConfig& cfg) {
+    static std::string to_string(const lib::Distribution::DistributionConfig& cfg) {
         return lib::Distribution(cfg).serialized();
     }
 };
 
-StateManagerTest::StateManagerTest()
-    : _config(),
-      _node(),
-      _upper(),
-      _manager(nullptr),
-      _lower(nullptr)
-{
+StateManagerTest::StateManagerTest() : _config(), _node(), _upper(), _manager(nullptr), _lower(nullptr) {
 }
 
-void
-StateManagerTest::SetUp()
-{
+void StateManagerTest::SetUp() {
     _config = StorageConfigSet::make_storage_node_config();
     _node = std::make_unique<TestServiceLayerApp>(NodeIndex(2), _config->config_uri());
     // Clock will increase 1 sec per call.
@@ -104,8 +87,7 @@ StateManagerTest::SetUp()
     _upper->open();
 }
 
-void
-StateManagerTest::TearDown() {
+void StateManagerTest::TearDown() {
     assert(_lower->getNumReplies() == 0);
     assert(_lower->getNumCommands() == 0);
     assert(_upper->getNumReplies() == 0);
@@ -118,9 +100,7 @@ StateManagerTest::TearDown() {
     _node.reset();
 }
 
-void
-StateManagerTest::get_single_reply(std::shared_ptr<api::StorageReply>& reply_out)
-{
+void StateManagerTest::get_single_reply(std::shared_ptr<api::StorageReply>& reply_out) {
     ASSERT_EQ(_upper->getNumReplies(), 1);
     ASSERT_TRUE(_upper->getReply(0)->getType().isReply());
     reply_out = std::dynamic_pointer_cast<api::StorageReply>(_upper->getReply(0));
@@ -128,27 +108,21 @@ StateManagerTest::get_single_reply(std::shared_ptr<api::StorageReply>& reply_out
     _upper->reset();
 }
 
-void
-StateManagerTest::get_only_ok_reply(std::shared_ptr<api::StorageReply>& reply_out)
-{
+void StateManagerTest::get_only_ok_reply(std::shared_ptr<api::StorageReply>& reply_out) {
     ASSERT_NO_FATAL_FAILURE(get_single_reply(reply_out));
     ASSERT_EQ(reply_out->getResult(), api::ReturnCode(api::ReturnCode::OK));
 }
 
-void
-StateManagerTest::force_current_cluster_state_version(uint32_t version, uint16_t cc_index)
-{
+void StateManagerTest::force_current_cluster_state_version(uint32_t version) {
     ClusterState state(*_manager->getClusterStateBundle()->getBaselineClusterState());
     state.setVersion(version);
-    const auto maybe_rejected_by_ver = _manager->try_set_cluster_state_bundle(
-            std::make_shared<const lib::ClusterStateBundle>(state), cc_index);
+    const auto maybe_rejected_by_ver =
+        _manager->try_set_cluster_state_bundle(std::make_shared<const lib::ClusterStateBundle>(state));
     ASSERT_EQ(maybe_rejected_by_ver, std::nullopt);
 }
 
-void
-StateManagerTest::extract_cluster_state_version_from_host_info(uint32_t& version_out)
-{
-    std::string nodeInfoString = get_node_info();
+void StateManagerTest::extract_cluster_state_version_from_host_info(uint32_t& version_out) {
+    std::string     nodeInfoString = get_node_info();
     vespalib::Slime nodeInfo;
     vespalib::slime::JsonFormat::decode(nodeInfoString, nodeInfo);
 
@@ -187,7 +161,7 @@ TEST_F(StateManagerTest, cluster_state_and_config_has_expected_values_at_bootstr
 
 TEST_F(StateManagerTest, can_receive_state_bundle_without_distribution_config) {
     ClusterState send_state("version:2 distributor:1 storage:4 .2.s:m");
-    auto cmd = std::make_shared<api::SetSystemStateCommand>(send_state);
+    auto         cmd = std::make_shared<api::SetSystemStateCommand>(send_state);
     _upper->sendDown(cmd);
     std::shared_ptr<api::StorageReply> reply;
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
@@ -230,13 +204,14 @@ TEST_F(StateManagerTest, receiving_cc_bundle_with_distribution_config_disables_n
 }
 
 TEST_F(StateManagerTest, internal_distribution_config_is_propagated_if_none_yet_received_from_cc) {
-    _upper->sendDown(make_set_state_cmd("version:10 distributor:1 storage:4", 0));
+    _upper->sendDown(make_set_state_cmd("version:10 distributor:1 storage:4"));
     std::shared_ptr<api::StorageReply> reply;
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
 
     auto expected_bundle = make_state_bundle_with_config("version:10 distributor:1 storage:4", 7);
     // Explicitly set internal config
-    _node->getComponentRegister().setDistribution(expected_bundle->distribution_config_bundle()->default_distribution_sp());
+    _node->getComponentRegister().setDistribution(
+        expected_bundle->distribution_config_bundle()->default_distribution_sp());
     _manager->storageDistributionChanged();
 
     auto current_bundle = _manager->getClusterStateBundle();
@@ -255,7 +230,7 @@ TEST_F(StateManagerTest, revert_to_internal_config_if_cc_no_longer_sends_distrib
               to_string(cmd->getClusterStateBundle().distribution_config_bundle()->config()));
 
     // CC then sends a new bundle _without_ config
-    _upper->sendDown(make_set_state_cmd("version:3 distributor:1 storage:4", 0));
+    _upper->sendDown(make_set_state_cmd("version:3 distributor:1 storage:4"));
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
 
     // Config implicitly reverted to the active internal config
@@ -265,7 +240,8 @@ TEST_F(StateManagerTest, revert_to_internal_config_if_cc_no_longer_sends_distrib
 
     // Explicitly set internal config
     auto expected_bundle = make_state_bundle_with_config("version:3 distributor:1 storage:4", 7);
-    _node->getComponentRegister().setDistribution(expected_bundle->distribution_config_bundle()->default_distribution_sp());
+    _node->getComponentRegister().setDistribution(
+        expected_bundle->distribution_config_bundle()->default_distribution_sp());
     _manager->storageDistributionChanged();
 
     // Internal config shall have taken effect, overriding that of the initial bundle
@@ -276,10 +252,10 @@ TEST_F(StateManagerTest, revert_to_internal_config_if_cc_no_longer_sends_distrib
 TEST_F(StateManagerTest, accept_lower_state_versions_if_strict_requirement_disabled) {
     _manager->set_require_strictly_increasing_cluster_state_versions(false);
 
-    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(123, 1)); // CC 1
+    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(123));
     ASSERT_EQ(_manager->getClusterStateBundle()->getVersion(), 123);
 
-    _upper->sendDown(make_set_state_cmd("version:122 distributor:1 storage:1", 0)); // CC 0
+    _upper->sendDown(make_set_state_cmd("version:122 distributor:1 storage:1"));
     std::shared_ptr<api::StorageReply> reply;
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
     EXPECT_EQ(_manager->getClusterStateBundle()->getVersion(), 122);
@@ -288,10 +264,10 @@ TEST_F(StateManagerTest, accept_lower_state_versions_if_strict_requirement_disab
 TEST_F(StateManagerTest, reject_lower_state_versions_if_strict_requirement_enabled) {
     _manager->set_require_strictly_increasing_cluster_state_versions(true);
 
-    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(123, 1)); // CC 1
+    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(123));
     ASSERT_EQ(_manager->getClusterStateBundle()->getVersion(), 123);
 
-    _upper->sendDown(make_set_state_cmd("version:122 distributor:1 storage:1", 0)); // CC 0
+    _upper->sendDown(make_set_state_cmd("version:122 distributor:1 storage:1"));
     std::shared_ptr<api::StorageReply> reply;
     ASSERT_NO_FATAL_FAILURE(get_single_reply(reply));
     api::ReturnCode expected_res(api::ReturnCode::REJECTED, "Cluster state version 122 rejected; node already has "
@@ -300,35 +276,11 @@ TEST_F(StateManagerTest, reject_lower_state_versions_if_strict_requirement_enabl
     EXPECT_EQ(_manager->getClusterStateBundle()->getVersion(), 123);
 }
 
-// Observing a lower cluster state version from the same CC index directly implies that the ZooKeeper
-// state has been lost, at which point we pragmatically (but begrudgingly) accept the state version
-// to avoid stalling the entire cluster for an indeterminate amount of time.
-TEST_F(StateManagerTest, accept_lower_state_versions_from_same_cc_index_even_if_strict_requirement_enabled) {
-    _manager->set_require_strictly_increasing_cluster_state_versions(true);
-
-    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(123, 1)); // CC 1
-    ASSERT_EQ(_manager->getClusterStateBundle()->getVersion(), 123);
-
-    ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(124, 2)); // CC 2
-    ASSERT_EQ(_manager->getClusterStateBundle()->getVersion(), 124);
-
-    // CC 1 restarts from scratch with previous ZK state up in smoke.
-    _upper->sendDown(make_set_state_cmd("version:3 distributor:1 storage:1", 1));
-    std::shared_ptr<api::StorageReply> reply;
-    ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
-    EXPECT_EQ(_manager->getClusterStateBundle()->getVersion(), 3);
-
-    // CC 2 restarts and continues from where CC 1 left off.
-    _upper->sendDown(make_set_state_cmd("version:4 distributor:1 storage:1", 2));
-    ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
-    EXPECT_EQ(_manager->getClusterStateBundle()->getVersion(), 4);
-}
-
 namespace {
 struct MyStateListener : public StateListener {
     const NodeStateUpdater& updater;
-    lib::NodeState current;
-    std::ostringstream ost;
+    lib::NodeState          current;
+    std::ostringstream      ost;
 
     explicit MyStateListener(const NodeStateUpdater& upd);
     ~MyStateListener() override;
@@ -341,10 +293,10 @@ struct MyStateListener : public StateListener {
 };
 
 MyStateListener::MyStateListener(const NodeStateUpdater& upd)
-    : updater(upd), current(*updater.getReportedNodeState())
-{}
-MyStateListener::~MyStateListener() = default;
+    : updater(upd), current(*updater.getReportedNodeState()) {
 }
+MyStateListener::~MyStateListener() = default;
+} // namespace
 
 TEST_F(StateManagerTest, reported_node_state) {
     std::shared_ptr<api::StorageReply> reply;
@@ -356,7 +308,7 @@ TEST_F(StateManagerTest, reported_node_state) {
     EXPECT_EQ("s:d b:58 t:1", nodeState->toString(false));
     // Test that it works to update the state
     {
-        auto lock = _manager->grabStateChangeLock();
+        auto      lock = _manager->grabStateChangeLock();
         NodeState ns(*_manager->getReportedNodeState());
         ns.setState(State::UP);
         _manager->setReportedNodeState(ns);
@@ -369,27 +321,25 @@ TEST_F(StateManagerTest, reported_node_state) {
     _upper->sendDown(cmd);
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
     ASSERT_EQ(api::MessageType::GETNODESTATE_REPLY, reply->getType());
-    nodeState = std::make_shared<NodeState>(
-                dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
+    nodeState = std::make_shared<NodeState>(dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
     EXPECT_EQ("s:u b:58 t:1", nodeState->toString(false));
     // We should also get it with wrong expected state
     cmd = std::make_shared<api::GetNodeStateCommand>(
-            std::make_unique<NodeState>(NodeType::STORAGE, State::INITIALIZING));
+        std::make_unique<NodeState>(NodeType::STORAGE, State::INITIALIZING));
     _upper->sendDown(cmd);
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
     ASSERT_EQ(api::MessageType::GETNODESTATE_REPLY, reply->getType());
-    nodeState = std::make_unique<NodeState>(
-                dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
+    nodeState = std::make_unique<NodeState>(dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
     EXPECT_EQ("s:u b:58 t:1", nodeState->toString(false));
     // With correct wanted state we should not get response right away
     cmd = std::make_shared<api::GetNodeStateCommand>(
-            std::make_unique<lib::NodeState>("s:u b:58 t:1", &NodeType::STORAGE));
+        std::make_unique<lib::NodeState>("s:u b:58 t:1", &NodeType::STORAGE));
     _upper->sendDown(cmd);
     ASSERT_EQ(size_t(0), _upper->getNumReplies());
     // But when we update state, we get the reply
     {
         NodeStateUpdater::Lock::SP lock(_manager->grabStateChangeLock());
-        NodeState ns(*_manager->getReportedNodeState());
+        NodeState                  ns(*_manager->getReportedNodeState());
         ns.setState(State::STOPPING);
         ns.setDescription("Stopping node");
         _manager->setReportedNodeState(ns);
@@ -397,8 +347,7 @@ TEST_F(StateManagerTest, reported_node_state) {
 
     ASSERT_NO_FATAL_FAILURE(get_only_ok_reply(reply));
     ASSERT_EQ(api::MessageType::GETNODESTATE_REPLY, reply->getType());
-    nodeState = std::make_unique<NodeState>(
-                dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
+    nodeState = std::make_unique<NodeState>(dynamic_cast<api::GetNodeStateReply&>(*reply).getNodeState());
     EXPECT_EQ("s:s b:58 t:1 m:Stopping\\x20node", nodeState->toString(false));
 
     // Removing state listener, it stops getting updates
@@ -406,13 +355,12 @@ TEST_F(StateManagerTest, reported_node_state) {
     // Do another update which listener should not get..
     {
         NodeStateUpdater::Lock::SP lock(_manager->grabStateChangeLock());
-        NodeState ns(*_manager->getReportedNodeState());
+        NodeState                  ns(*_manager->getReportedNodeState());
         ns.setState(State::UP);
         _manager->setReportedNodeState(ns);
     }
-    std::string expectedEvents =
-            "s:d b:58 t:1 -> s:u b:58 t:1\n"
-            "s:u b:58 t:1 -> s:s b:58 t:1 m:Stopping\\x20node\n";
+    std::string expectedEvents = "s:d b:58 t:1 -> s:u b:58 t:1\n"
+                                 "s:u b:58 t:1 -> s:s b:58 t:1 m:Stopping\\x20node\n";
     EXPECT_EQ(expectedEvents, stateListener.ost.str());
 }
 
@@ -429,8 +377,7 @@ void StateManagerTest::mark_reported_node_state_up() {
 }
 
 void StateManagerTest::send_down_get_node_state_request(uint16_t controller_index) {
-    auto cmd = std::make_shared<api::GetNodeStateCommand>(
-            std::make_unique<NodeState>(NodeType::STORAGE, State::UP));
+    auto cmd = std::make_shared<api::GetNodeStateCommand>(std::make_unique<NodeState>(NodeType::STORAGE, State::UP));
     cmd->setTimeout(10000000ms);
     cmd->setSourceIndex(controller_index);
     _upper->sendDown(cmd);
@@ -501,8 +448,7 @@ TEST_F(StateManagerTest, immediate_node_state_replying_is_tracked_per_controller
     ASSERT_EQ(0, _upper->getNumReplies());
 }
 
-TEST_F(StateManagerTest, request_almost_immediate_replies_triggers_fast_reply)
-{
+TEST_F(StateManagerTest, request_almost_immediate_replies_triggers_fast_reply) {
     mark_reported_node_state_up();
     mark_reply_observed_from_n_controllers(1);
     auto before = std::chrono::steady_clock::now();
@@ -534,7 +480,8 @@ TEST_F(StateManagerTest, activation_command_is_bounced_with_current_cluster_stat
 }
 
 TEST_F(StateManagerTest, non_deferred_cluster_state_sets_reported_cluster_state_version) {
-    auto cmd = std::make_shared<api::SetSystemStateCommand>(lib::ClusterState("version:1234 distributor:1 storage:1"));
+    auto cmd =
+        std::make_shared<api::SetSystemStateCommand>(lib::ClusterState("version:1234 distributor:1 storage:1"));
     cmd->setTimeout(1000s);
     cmd->setSourceIndex(0);
     _upper->sendDown(cmd);
@@ -550,7 +497,7 @@ TEST_F(StateManagerTest, deferred_cluster_state_does_not_update_state_until_acti
     ASSERT_NO_FATAL_FAILURE(force_current_cluster_state_version(100));
 
     lib::ClusterStateBundle deferred_bundle(lib::ClusterState("version:101 distributor:1 storage:1"), {}, true);
-    auto state_cmd = std::make_shared<api::SetSystemStateCommand>(deferred_bundle);
+    auto                    state_cmd = std::make_shared<api::SetSystemStateCommand>(deferred_bundle);
     state_cmd->setTimeout(1000s);
     state_cmd->setSourceIndex(0);
     _upper->sendDown(state_cmd);
@@ -571,4 +518,4 @@ TEST_F(StateManagerTest, deferred_cluster_state_does_not_update_state_until_acti
     EXPECT_EQ(version, 101);
 }
 
-} // storage
+} // namespace storage

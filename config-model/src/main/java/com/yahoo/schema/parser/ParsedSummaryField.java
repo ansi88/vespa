@@ -3,6 +3,7 @@ package com.yahoo.schema.parser;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * This class holds the extracted information after parsing a summary
@@ -11,7 +12,7 @@ import java.util.List;
  * possible.  Do not put advanced logic here!
  * @author arnej27959
  **/
-class ParsedSummaryField extends ParsedBlock {
+public class ParsedSummaryField extends ParsedBlock {
 
     private ParsedType type;
     private boolean isDyn = false;
@@ -22,12 +23,10 @@ class ParsedSummaryField extends ParsedBlock {
     private boolean hasExplicitType = false;
     private final List<String> sources = new ArrayList<>();
     private final List<String> destinations = new ArrayList<>();
+    private final List<String> structFieldSelect = new ArrayList<>();
+    private String selectElementsBySummaryFeature = null;
 
-    ParsedSummaryField(String name) {
-        this(name, null);
-    }
-
-    ParsedSummaryField(String name, ParsedType type) {
+    public ParsedSummaryField(String name, ParsedType type) {
         super(name, "summary field");
         this.type = type;
     }
@@ -35,23 +34,29 @@ class ParsedSummaryField extends ParsedBlock {
     ParsedType getType() { return type; }
     List<String> getDestinations() { return List.copyOf(destinations); }
     List<String> getSources() { return List.copyOf(sources); }
+    List<String> getStructFieldSelect() { return List.copyOf(structFieldSelect); }
     boolean getBolded() { return isBold; }
     boolean getDynamic() { return isDyn; }
     boolean getFull() { return isFull; }
     boolean getMatchedElementsOnly() { return isMEO; }
+    Optional<String> getSelectElementsBySummaryFeature() { return Optional.ofNullable(selectElementsBySummaryFeature); }
     boolean getTokens() { return isTokens; }
     boolean getHasExplicitType() { return hasExplicitType; }
 
-    void addDestination(String dst) { destinations.add(dst); }
-    void addSource(String src) { sources.add(src); }
-    void setBold(boolean value) { this.isBold = value; }
-    void setDynamic() { this.isDyn = true; }
-    void setFull() { this.isFull = true; }
-    void setMatchedElementsOnly() { this.isMEO = true; }
-    void setTokens() { this.isTokens = true; }
-    void setHasExplicitType() { this.hasExplicitType = true; }
+    public void addDestination(String dst) { destinations.add(dst); }
+    public void addSource(String src) { sources.add(src); }
+    public void addStructFieldSelect(String name) { structFieldSelect.add(name); }
+    public void setBold(boolean value) { this.isBold = value; }
+    public void setDynamic() { this.isDyn = true; }
+    public void setFull() { this.isFull = true; }
+    public void setMatchedElementsOnly() { this.isMEO = true; }
+    public void setSelectElementsBySummaryFeature(String summaryFeature) {
+        selectElementsBySummaryFeature = summaryFeature;
+    }
+    public void setTokens() { this.isTokens = true; }
+    public void setHasExplicitType() { this.hasExplicitType = true; }
     void setType(ParsedType value) {
-        verifyThat(type == null, "Cannot change type from ", type, "to", value);
+        verifyThat(type == null, "Cannot change type from ", type.toNiceName(), "to", value.toNiceName());
         this.type = value;
     }
 }
